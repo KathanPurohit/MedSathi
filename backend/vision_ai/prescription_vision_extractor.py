@@ -43,7 +43,7 @@ def extract_prescription_or_report_from_image(
     """
 
     response = gemini_client.models.generate_content(
-        model="gemini-3.8-flash",
+        model="gemini-2.5-flash",
         contents=[
             types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
             system_prompt,
