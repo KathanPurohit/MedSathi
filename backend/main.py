@@ -1,4 +1,5 @@
 import base64
+import logging
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from generic_matcher.jan_aushadhi_price_matcher import match_generic_salt_prices
@@ -33,11 +34,24 @@ async def analyze_medical_document(
     sanitized_image_bytes = auto_redact_pii_from_image(raw_image_bytes)
 
     # 2. Extract structured report & translated summaries from the sanitized image
-    report = extract_prescription_or_report_from_image(
-        image_bytes=sanitized_image_bytes,
-        mime_type="image/jpeg",
-        language=language,
-    )
+    try:
+        report = extract_prescription_or_report_from_image(
+            image_bytes=sanitized_image_bytes,
+            mime_type="image/jpeg",
+            language=language,
+        )
+    except Exception as exc:
+        err_msg = str(exc)
+        logging.error(f"Error during AI document analysis: {err_msg}")
+        if "503" in err_msg or "high demand" in err_msg.lower() or "UNAVAILABLE" in err_msg:
+            raise HTTPException(
+                status_code=503,
+                detail="Google AI is currently experiencing high demand. Automatic retries attempted. Please tap Analyze again.",
+            )
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to analyze medical document: {err_msg}",
+        )
 
     # 3. Match extracted chemical salts against Jan Aushadhi generic pricing
     generic_savings, total_monthly_saved = match_generic_salt_prices(report.medicines)
