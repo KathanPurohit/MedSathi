@@ -1,0 +1,9 @@
+{
+  "name": "MedSaathi — Privacy-First Rx & Lab Simplifier",
+  "short_name": "MedSaathi",
+  "description": "Decode prescriptions, find Jan Aushadhi generic savings, and share voice notes in Hindi, Gujarati & English.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f8fafc",
+  "theme_color": "#0f766e"
+}
