@@ -31,6 +31,7 @@ async def generate_voice_note_base64(voice_script: str, language: str = "English
     normalized_gender = "male" if gender and gender.lower() == "male" else "female"
     lang_voices = EDGE_VOICE_MAP.get(language, EDGE_VOICE_MAP["English"])
     voice_name = lang_voices.get(normalized_gender, "en-IN-NeerjaExpressiveNeural")
+    print(f"[Voice AI] Generating audio for language='{language}' gender='{normalized_gender}' using voice='{voice_name}'")
 
     try:
         import edge_tts

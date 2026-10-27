@@ -47,20 +47,26 @@ export function GrandparentVoicePlayerCard({
   const [activeGender, setActiveGender] = useState<VoiceGender>(initialVoiceGender);
   const [isSwitchingVoice, setIsSwitchingVoice] = useState(false);
 
-  // Cache generated audio per gender so switching is instant
+  // Cache generated audio per gender so switching is instant without re-requesting
   const [audioCache, setAudioCache] = useState<Record<VoiceGender, string>>({
     female: initialVoiceGender === "female" ? audioDataUrl : "",
     male: initialVoiceGender === "male" ? audioDataUrl : "",
   });
 
+  // When a new document analysis arrives, reset state to the initial voice gender
   useEffect(() => {
-    setAudioCache((prev) => ({
-      female: activeGender === "female" ? audioDataUrl : prev.female,
-      male: activeGender === "male" ? audioDataUrl : prev.male,
-    }));
-  }, [audioDataUrl, activeGender]);
+    setActiveGender(initialVoiceGender);
+    setAudioCache({
+      female: initialVoiceGender === "female" ? audioDataUrl : "",
+      male: initialVoiceGender === "male" ? audioDataUrl : "",
+    });
+    setIsPlaying(false);
+  }, [audioDataUrl, initialVoiceGender]);
 
-  const currentAudioSrc = audioCache[activeGender] || audioDataUrl;
+  // Ensure current audio src strictly reflects activeGender and never falls back to the opposite gender
+  const currentAudioSrc =
+    audioCache[activeGender] ||
+    (activeGender === initialVoiceGender ? audioDataUrl : "");
 
   const toggleAudio = () => {
     const audio = audioRef.current;
@@ -69,12 +75,15 @@ export function GrandparentVoicePlayerCard({
       audio.pause();
       setIsPlaying(false);
     } else {
-      audio.play().then(() => setIsPlaying(true)).catch(() => setIsPlaying(false));
+      audio
+        .play()
+        .then(() => setIsPlaying(true))
+        .catch(() => setIsPlaying(false));
     }
   };
 
-  const handleSwitchVoice = async (gender: VoiceGender) => {
-    if (gender === activeGender || isSwitchingVoice) return;
+  const handleSwitchVoice = async (targetGender: VoiceGender) => {
+    if (targetGender === activeGender || isSwitchingVoice) return;
 
     const wasPlaying = isPlaying;
     if (audioRef.current && wasPlaying) {
@@ -82,32 +91,45 @@ export function GrandparentVoicePlayerCard({
       setIsPlaying(false);
     }
 
-    if (audioCache[gender]) {
-      setActiveGender(gender);
-      if (wasPlaying && audioRef.current) {
+    // 1. If audio is already generated and cached for targetGender, switch immediately
+    if (audioCache[targetGender]) {
+      setActiveGender(targetGender);
+      if (wasPlaying) {
         setTimeout(() => {
-          audioRef.current?.play().then(() => setIsPlaying(true)).catch(() => {});
+          if (audioRef.current) {
+            audioRef.current
+              .play()
+              .then(() => setIsPlaying(true))
+              .catch(() => {});
+          }
         }, 150);
       }
       return;
     }
 
-    // Generate new voice on-demand
+    // 2. Fetch new audio for the targetGender on-demand
     setIsSwitchingVoice(true);
     try {
       const newAudioUrl = await generateVoiceNote(
         report.voice_script_translated,
         language,
-        gender
+        targetGender
       );
+
       setAudioCache((prev) => ({
-        female: gender === "female" ? newAudioUrl : prev.female,
-        male: gender === "male" ? newAudioUrl : prev.male,
+        ...prev,
+        [targetGender]: newAudioUrl,
       }));
-      setActiveGender(gender);
-      if (wasPlaying && audioRef.current) {
+      setActiveGender(targetGender);
+
+      if (wasPlaying) {
         setTimeout(() => {
-          audioRef.current?.play().then(() => setIsPlaying(true)).catch(() => {});
+          if (audioRef.current) {
+            audioRef.current
+              .play()
+              .then(() => setIsPlaying(true))
+              .catch(() => {});
+          }
         }, 150);
       }
     } catch (err) {
@@ -133,7 +155,7 @@ export function GrandparentVoicePlayerCard({
             type="button"
             disabled={isSwitchingVoice}
             onClick={() => handleSwitchVoice("female")}
-            className={`px-2 py-1 rounded-lg transition-all flex items-center gap-1 ${
+            className={`px-2.5 py-1 rounded-lg transition-all flex items-center gap-1 ${
               activeGender === "female"
                 ? "bg-white text-teal-900 shadow-sm"
                 : "text-slate-500 hover:text-slate-800"
@@ -146,7 +168,7 @@ export function GrandparentVoicePlayerCard({
             type="button"
             disabled={isSwitchingVoice}
             onClick={() => handleSwitchVoice("male")}
-            className={`px-2 py-1 rounded-lg transition-all flex items-center gap-1 ${
+            className={`px-2.5 py-1 rounded-lg transition-all flex items-center gap-1 ${
               activeGender === "male"
                 ? "bg-white text-teal-900 shadow-sm"
                 : "text-slate-500 hover:text-slate-800"
@@ -166,7 +188,8 @@ export function GrandparentVoicePlayerCard({
       <div className="mb-4 flex items-center justify-between px-3 py-2 rounded-xl bg-slate-50 border border-slate-200/70 text-[11px] text-slate-600">
         <span className="flex items-center gap-1.5">
           <Mic className="h-3.5 w-3.5 text-teal-600" />
-          Narrated by: <strong>{activeGender === "female" ? labels.female : labels.male}</strong>
+          Narrated by:{" "}
+          <strong>{activeGender === "female" ? labels.female : labels.male}</strong>
         </span>
         {isSwitchingVoice && (
           <span className="flex items-center gap-1 text-teal-700 font-semibold animate-pulse">
@@ -175,17 +198,21 @@ export function GrandparentVoicePlayerCard({
         )}
       </div>
 
-      <audio
-        ref={audioRef}
-        src={currentAudioSrc}
-        onEnded={() => setIsPlaying(false)}
-        className="hidden"
-      />
+      {/* Audio Element with key={activeGender} to force full reload on voice change */}
+      {currentAudioSrc && (
+        <audio
+          key={activeGender}
+          ref={audioRef}
+          src={currentAudioSrc}
+          onEnded={() => setIsPlaying(false)}
+          className="hidden"
+        />
+      )}
 
       <div className="flex gap-2.5">
         <button
           type="button"
-          disabled={isSwitchingVoice}
+          disabled={isSwitchingVoice || !currentAudioSrc}
           onClick={toggleAudio}
           className="flex-1 py-3.5 px-4 rounded-2xl bg-teal-50 hover:bg-teal-100/80 border border-teal-200 text-teal-900 font-semibold text-xs flex items-center justify-center gap-2 transition-all disabled:opacity-60"
         >
