@@ -1,4 +1,4 @@
-import { ANALYZE_DOCUMENT_ENDPOINT } from "@/config/api_endpoints";
+import { getAnalyzeDocumentEndpoint } from "@/config/api_endpoints";
 import {
   AnalyzeDocumentApiResponse,
   SupportedLanguage,
@@ -13,7 +13,8 @@ export async function submitDocumentForAnalysis(
   formData.append("file", imageBlob, "sanitized-document.jpg");
   formData.append("language", language);
 
-  const response = await fetch(ANALYZE_DOCUMENT_ENDPOINT, {
+  const endpoint = getAnalyzeDocumentEndpoint();
+  const response = await fetch(endpoint, {
     method: "POST",
     body: formData,
   });
