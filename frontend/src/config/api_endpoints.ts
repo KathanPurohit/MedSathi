@@ -16,4 +16,8 @@ export const getAnalyzeDocumentEndpoint = (): string => {
   return `${getFastApiBaseUrl()}/api/analyze-document`;
 };
 
+export const getGenerateVoiceEndpoint = (): string => {
+  return `${getFastApiBaseUrl()}/api/generate-voice`;
+};
+
 export const ANALYZE_DOCUMENT_ENDPOINT = `${FASTAPI_BASE_URL}/api/analyze-document`;

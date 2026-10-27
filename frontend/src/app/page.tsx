@@ -14,10 +14,12 @@ import { submitDocumentForAnalysis } from "@/services/analyze_document_client";
 import {
   AnalyzeDocumentApiResponse,
   SupportedLanguage,
+  VoiceGender,
 } from "@/types/prescription_report_types";
 
 export default function MedSaathiHomePage() {
   const [language, setLanguage] = useState<SupportedLanguage>("Gujarati");
+  const [voiceGender, setVoiceGender] = useState<VoiceGender>("female");
   const [pendingFile, setPendingFile] = useState<File | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -29,7 +31,11 @@ export default function MedSaathiHomePage() {
     setErrorMessage(null);
 
     try {
-      const response = await submitDocumentForAnalysis(sanitizedBlob, language);
+      const response = await submitDocumentForAnalysis(
+        sanitizedBlob,
+        language,
+        voiceGender
+      );
       setResult(response);
     } catch (err: unknown) {
       setErrorMessage(
@@ -48,6 +54,8 @@ export default function MedSaathiHomePage() {
         <LanguageAndUploadCard
           selectedLanguage={language}
           onSelectLanguage={setLanguage}
+          selectedVoiceGender={voiceGender}
+          onSelectVoiceGender={setVoiceGender}
           onFileSelected={(file) => setPendingFile(file)}
           isAnalyzing={isAnalyzing}
         />
@@ -91,6 +99,8 @@ export default function MedSaathiHomePage() {
             <GrandparentVoicePlayerCard
               report={result.report}
               audioDataUrl={result.audio_data_url}
+              language={language}
+              initialVoiceGender={voiceGender}
             />
 
             <VisualPillScheduleCard

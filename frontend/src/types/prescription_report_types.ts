@@ -1,6 +1,7 @@
 /** Strict TypeScript contracts matching the FastAPI Pydantic response schemas. */
 
 export type SupportedLanguage = "English" | "Hindi" | "Gujarati";
+export type VoiceGender = "female" | "male";
 
 export interface ExtractedMedicine {
   brand_name: string;

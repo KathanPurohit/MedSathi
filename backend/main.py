@@ -2,6 +2,7 @@ import base64
 import logging
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
 from generic_matcher.jan_aushadhi_price_matcher import match_generic_salt_prices
 from utilities.medication_ics_calendar_builder import build_medication_ics_content
 from utilities.privacy_pii_redactor import auto_redact_pii_from_image
@@ -19,10 +20,17 @@ app.add_middleware(
 )
 
 
+class VoiceGenerateRequest(BaseModel):
+    voice_script: str
+    language: str = "English"
+    voice_gender: str = "female"
+
+
 @app.post("/api/analyze-document")
 async def analyze_medical_document(
     file: UploadFile = File(...),
     language: str = Form("English"),
+    voice_gender: str = Form("female"),
 ):
     """Single endpoint that orchestrates Offline PII Redaction, Vision OCR, Generic Salt Matching, TTS Audio, and Calendar Alarms."""
     if not file.content_type or not file.content_type.startswith("image/"):
@@ -58,10 +66,11 @@ async def analyze_medical_document(
     report.generic_savings = generic_savings
     report.total_monthly_savings_inr = total_monthly_saved
 
-    # 4. Generate grandparent-friendly MP3 audio voice note in Base64
-    audio_data_url = generate_voice_note_base64(
+    # 4. Generate grandparent-friendly MP3 audio voice note in Base64 (supporting female/male doctor voices)
+    audio_data_url = await generate_voice_note_base64(
         voice_script=report.voice_script_translated,
         language=language,
+        gender=voice_gender,
     )
 
     # 5. Build 1-tap phone calendar alarm (.ics) content
@@ -77,3 +86,17 @@ async def analyze_medical_document(
         "audio_data_url": audio_data_url,
         "ics_calendar_text": ics_calendar_text,
     }
+
+
+@app.post("/api/generate-voice")
+async def generate_voice_endpoint(request: VoiceGenerateRequest):
+    """Allows instant voice toggle (Female Dr. Neerja vs Male Dr. Prabhat) without re-analyzing the image."""
+    if not request.voice_script or not request.voice_script.strip():
+        raise HTTPException(status_code=400, detail="Voice script cannot be empty.")
+
+    audio_data_url = await generate_voice_note_base64(
+        voice_script=request.voice_script,
+        language=request.language,
+        gender=request.voice_gender,
+    )
+    return {"audio_data_url": audio_data_url}

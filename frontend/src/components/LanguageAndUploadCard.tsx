@@ -1,12 +1,14 @@
 "use client";
 
 import { useRef } from "react";
-import { Camera, FileUp, Globe, Lock } from "lucide-react";
-import { SupportedLanguage } from "@/types/prescription_report_types";
+import { Camera, FileUp, Globe, Lock, Mic } from "lucide-react";
+import { SupportedLanguage, VoiceGender } from "@/types/prescription_report_types";
 
 interface Props {
   selectedLanguage: SupportedLanguage;
   onSelectLanguage: (lang: SupportedLanguage) => void;
+  selectedVoiceGender: VoiceGender;
+  onSelectVoiceGender: (gender: VoiceGender) => void;
   onFileSelected: (file: File) => void;
   isAnalyzing: boolean;
 }
@@ -17,10 +19,21 @@ const LANGUAGES: { id: SupportedLanguage; label: string; native: string }[] = [
   { id: "Gujarati", label: "ગુજરાતી", native: "GU" },
 ];
 
-/** Hero card allowing language selection and 1-tap camera or gallery prescription upload. */
+const VOICE_PERSONAS: Record<
+  SupportedLanguage,
+  { female: string; male: string }
+> = {
+  English: { female: "Dr. Neerja (Female Caregiver)", male: "Dr. Prabhat (Male Doctor)" },
+  Hindi: { female: "डॉ. स्वरा (महिला स्वर)", male: "डॉ. मधुर (पुरुष स्वर)" },
+  Gujarati: { female: "ડૉ. ધ્વનિ (મહિલા અવાજ)", male: "ડૉ. નિરંજન (પુરુષ અવાજ)" },
+};
+
+/** Hero card allowing language & doctor voice selection and 1-tap camera or gallery prescription upload. */
 export function LanguageAndUploadCard({
   selectedLanguage,
   onSelectLanguage,
+  selectedVoiceGender,
+  onSelectVoiceGender,
   onFileSelected,
   isAnalyzing,
 }: Props) {
@@ -33,6 +46,8 @@ export function LanguageAndUploadCard({
     e.target.value = "";
   };
 
+  const currentPersonas = VOICE_PERSONAS[selectedLanguage];
+
   return (
     <section className="rounded-3xl bg-white border border-slate-200/80 p-5 shadow-sm">
       <div className="flex items-center justify-between mb-3">
@@ -42,7 +57,7 @@ export function LanguageAndUploadCard({
         </span>
       </div>
 
-      <div className="grid grid-cols-3 gap-2 p-1 rounded-2xl bg-slate-100/80 mb-5">
+      <div className="grid grid-cols-3 gap-2 p-1 rounded-2xl bg-slate-100/80 mb-4">
         {LANGUAGES.map((lang) => {
           const active = selectedLanguage === lang.id;
           return (
@@ -60,6 +75,42 @@ export function LanguageAndUploadCard({
             </button>
           );
         })}
+      </div>
+
+      {/* Voice Persona Selector */}
+      <div className="mb-5">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
+            <Mic className="h-3.5 w-3.5 text-teal-600" />
+            2. Choose Doctor Voice
+          </span>
+        </div>
+        <div className="grid grid-cols-2 gap-2 p-1 rounded-2xl bg-slate-100/80">
+          <button
+            type="button"
+            onClick={() => onSelectVoiceGender("female")}
+            className={`py-2 px-3 rounded-xl text-[11px] font-semibold transition-all flex items-center justify-center gap-1.5 ${
+              selectedVoiceGender === "female"
+                ? "bg-white text-teal-900 shadow-sm ring-1 ring-slate-200/70"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            <span className="h-2 w-2 rounded-full bg-teal-500 shrink-0" />
+            <span className="truncate">{currentPersonas.female}</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => onSelectVoiceGender("male")}
+            className={`py-2 px-3 rounded-xl text-[11px] font-semibold transition-all flex items-center justify-center gap-1.5 ${
+              selectedVoiceGender === "male"
+                ? "bg-white text-teal-900 shadow-sm ring-1 ring-slate-200/70"
+                : "text-slate-600 hover:text-slate-900"
+            }`}
+          >
+            <span className="h-2 w-2 rounded-full bg-blue-500 shrink-0" />
+            <span className="truncate">{currentPersonas.male}</span>
+          </button>
+        </div>
       </div>
 
       {/* Hidden inputs for Rear Camera vs Photo Gallery */}
