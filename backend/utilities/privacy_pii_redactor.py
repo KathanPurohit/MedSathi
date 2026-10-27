@@ -1,18 +1,31 @@
-import asyncio
 import io
 import re
 from PIL import Image, ImageDraw
 
-PII_KEYWORDS = [
-    "name", "patient", "pt name", "sex", "age", "gender", "dob",
-    "passport", "lab id", "ref. id", "ref by", "uhid", "mrn",
-    "phone", "mobile", "contact", "client name", "address",
-    "sample id", "barcode", "collected at", "registration on"
+PII_FIELD_PATTERNS = [
+    ("name", 320),
+    ("patient", 320),
+    ("passport", 260),
+    ("sex", 280),
+    ("age", 280),
+    ("gender", 280),
+    ("dob", 240),
+    ("lab id", 240),
+    ("uhid", 220),
+    ("mrn", 220),
+    ("phone", 220),
+    ("mobile", 220),
+    ("contact", 220),
+    ("address", 300),
+    ("client", 280),
+    ("registration", 240),
+    ("collected", 240),
+    ("sample type", 200),
 ]
 
 
-async def _run_winrt_ocr_boxes(image_bytes: bytes):
-    """Uses native Windows Media OCR to detect bounding boxes of text."""
+async def _run_winrt_ocr(image_bytes: bytes):
+    """Uses native Windows Media OCR to detect words and lines with bounding boxes."""
     try:
         from winrt.windows.media.ocr import OcrEngine
         from winrt.windows.graphics.imaging import BitmapDecoder
@@ -33,12 +46,13 @@ async def _run_winrt_ocr_boxes(image_bytes: bytes):
 
         ocr_result = await engine.recognize_async(bitmap)
         return ocr_result.lines
-    except Exception:
+    except Exception as exc:
+        print(f"[Privacy Shield Error] WinRT OCR failed: {exc}")
         return []
 
 
-def auto_redact_pii_from_image(image_bytes: bytes) -> bytes:
-    """Automatically detects and blacks out patient PII (names, IDs, phone numbers) from image bytes."""
+async def auto_redact_pii_from_image(image_bytes: bytes) -> bytes:
+    """Detects and draws black bars over patient demographics, names, IDs, and QR codes before AI processing."""
     try:
         pil_img = Image.open(io.BytesIO(image_bytes)).convert("RGB")
     except Exception:
@@ -47,46 +61,64 @@ def auto_redact_pii_from_image(image_bytes: bytes) -> bytes:
     draw = ImageDraw.Draw(pil_img)
     img_width, img_height = pil_img.size
 
-    # Run native offline OCR
-    try:
-        lines = asyncio.run(_run_winrt_ocr_boxes(image_bytes))
-    except Exception:
-        lines = []
+    lines = await _run_winrt_ocr(image_bytes)
+    if not lines:
+        return image_bytes
 
-    redacted = False
+    # 1. Determine where clinical tests or Rx prescriptions begin so medical data is preserved
+    clinical_start_y = img_height
+    for line in lines:
+        line_lower = line.text.lower()
+        if any(term in line_lower for term in [
+            "complete blood", "rx", "investigation", "test name",
+            "clinical", "biochemistry", "hematology", "pathology",
+            "lipid profile", "thyroid profile", "liver function", "renal function"
+        ]):
+            clinical_start_y = min(clinical_start_y, line.words[0].bounding_rect.y)
 
-    if lines:
-        for line in lines:
-            line_text_lower = line.text.lower()
-            is_pii_keyword = any(kw in line_text_lower for kw in PII_KEYWORDS)
-            has_phone_or_id = bool(re.search(r"(\+?91[\-\s]?)?[6-9]\d{9}|\b\d{6,12}\b", line.text))
+    redacted_count = 0
 
-            if is_pii_keyword or has_phone_or_id:
-                # Black out each word on the PII line
-                for word in line.words:
-                    r = word.bounding_rect
-                    # Add 4px padding around each word for complete coverage
-                    x0 = max(0, r.x - 3)
-                    y0 = max(0, r.y - 3)
-                    x1 = min(img_width, r.x + r.width + 3)
-                    y1 = min(img_height, r.y + r.height + 3)
+    # 2. Black out PII fields in header area (label + value spanning to the right)
+    for line in lines:
+        for w in line.words:
+            r = w.bounding_rect
+            if r.y >= clinical_start_y:
+                continue
+
+            w_lower = w.text.lower()
+            for label, span_width in PII_FIELD_PATTERNS:
+                if label in w_lower:
+                    x0 = max(0, r.x - 4)
+                    y0 = max(0, r.y - 4)
+                    x1 = min(img_width, r.x + span_width)
+                    y1 = min(img_height, r.y + r.height + 6)
                     draw.rectangle([x0, y0, x1, y1], fill="#0f172a")
-                    redacted = True
+                    redacted_count += 1
 
-    # Also blackout standard top-right QR code / barcode region if present in header
-    # (top 15% height, right 40% width often contains patient verification QR code)
-    # We black out words matching QR code prompt
-    if lines:
-        for line in lines:
-            if "qr code" in line.text.lower() or "authenticity" in line.text.lower():
-                r_line = line.words[0].bounding_rect
-                # Black out QR code area above the line
-                draw.rectangle(
-                    [max(0, r_line.x - 100), max(0, r_line.y - 120), min(img_width, r_line.x + 150), r_line.y],
-                    fill="#0f172a"
-                )
-                redacted = True
+    # 3. Black out any remaining ID numbers, phone numbers, or code identifiers in the header
+    for line in lines:
+        for w in line.words:
+            r = w.bounding_rect
+            if r.y < clinical_start_y:
+                if re.search(r"\d{5,}|[0-9]+[xX]+|[xX]+[0-9]+", w.text):
+                    draw.rectangle(
+                        [max(0, r.x - 4), max(0, r.y - 4), min(img_width, r.x + r.width + 4), min(img_height, r.y + r.height + 4)],
+                        fill="#0f172a"
+                    )
+                    redacted_count += 1
 
+    # 4. Black out verification QR code / Barcode in top area
+    for line in lines:
+        line_lower = line.text.lower()
+        if "qr code" in line_lower or "authenticity" in line_lower or "barcode" in line_lower:
+            r = line.words[0].bounding_rect
+            draw.rectangle(
+                [max(0, r.x - 130), max(0, r.y - 150), min(img_width, r.x + 200), min(img_height, r.y + 10)],
+                fill="#0f172a"
+            )
+            redacted_count += 1
+
+    print(f"[Privacy Shield] Successfully blacked out {redacted_count} PII boxes from medical document.")
     output_buf = io.BytesIO()
-    pil_img.save(output_buf, format="JPEG", quality=92)
+    pil_img.save(output_buf, format="JPEG", quality=95)
     return output_buf.getvalue()

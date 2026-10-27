@@ -31,7 +31,7 @@ async def analyze_medical_document(
     raw_image_bytes = await file.read()
 
     # 1. Automatically blackout all patient names, IDs, phone numbers, and QR codes before AI processing
-    sanitized_image_bytes = auto_redact_pii_from_image(raw_image_bytes)
+    sanitized_image_bytes = await auto_redact_pii_from_image(raw_image_bytes)
 
     # 2. Extract structured report & translated summaries from the sanitized image
     try:
