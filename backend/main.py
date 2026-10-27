@@ -1,13 +1,15 @@
 import base64
+import io
 import logging
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+import pypdfium2 as pdfium
 from generic_matcher.jan_aushadhi_price_matcher import match_generic_salt_prices
 from utilities.medication_ics_calendar_builder import build_medication_ics_content
 from utilities.privacy_pii_redactor import auto_redact_pii_from_image
 from utilities.voice_note_generator import generate_voice_note_base64
-from vision_ai.prescription_vision_extractor import extract_prescription_or_report_from_image
+from vision_ai.prescription_vision_extractor import extract_prescription_or_report_from_images
 
 app = FastAPI(title="MedSaathi API - Medical & Prescription Simplifier")
 
@@ -32,20 +34,54 @@ async def analyze_medical_document(
     language: str = Form("English"),
     voice_gender: str = Form("female"),
 ):
-    """Single endpoint that orchestrates Offline PII Redaction, Vision OCR, Generic Salt Matching, TTS Audio, and Calendar Alarms."""
-    if not file.content_type or not file.content_type.startswith("image/"):
-        raise HTTPException(status_code=400, detail="Please upload a valid image file (JPEG, PNG, WEBP).")
+    """Single endpoint supporting Single & Multi-Page PDFs and Images with Offline PII Redaction, Vision AI, and TTS."""
+    raw_bytes = await file.read()
+    if not raw_bytes:
+        raise HTTPException(status_code=400, detail="Uploaded file is empty.")
 
-    raw_image_bytes = await file.read()
+    is_pdf = (
+        (file.content_type and "pdf" in file.content_type.lower())
+        or (file.filename and file.filename.lower().endswith(".pdf"))
+        or raw_bytes.startswith(b"%PDF")
+    )
+    is_image = (
+        (file.content_type and file.content_type.startswith("image/"))
+        or (file.filename and any(file.filename.lower().endswith(ext) for ext in [".jpg", ".jpeg", ".png", ".webp"]))
+    )
 
-    # 1. Automatically blackout all patient names, IDs, phone numbers, and QR codes before AI processing
-    sanitized_image_bytes = await auto_redact_pii_from_image(raw_image_bytes)
+    if not is_pdf and not is_image:
+        raise HTTPException(
+            status_code=400,
+            detail="Please upload a valid image file (JPEG, PNG, WEBP) or multi-page PDF document.",
+        )
 
-    # 2. Extract structured report & translated summaries from the sanitized image
+    # 1. Render all document pages to high-resolution images
+    page_images_bytes: list[bytes] = []
+    if is_pdf:
+        try:
+            pdf = pdfium.PdfDocument(raw_bytes)
+            print(f"[Document Engine] Detected multi-page PDF with {len(pdf)} page(s).")
+            for page in pdf:
+                pil_page = page.render(scale=2.0).to_pil().convert("RGB")
+                buf = io.BytesIO()
+                pil_page.save(buf, format="JPEG", quality=92)
+                page_images_bytes.append(buf.getvalue())
+        except Exception as exc:
+            logging.error(f"Error parsing PDF document: {exc}")
+            raise HTTPException(status_code=400, detail=f"Failed to read PDF document: {exc}")
+    else:
+        page_images_bytes = [raw_bytes]
+
+    # 2. Automatically blackout all patient demographics, IDs, and QR codes across all pages
+    sanitized_pages_bytes: list[bytes] = []
+    for idx, page_bytes in enumerate(page_images_bytes, start=1):
+        redacted = await auto_redact_pii_from_image(page_bytes)
+        sanitized_pages_bytes.append(redacted)
+
+    # 3. Extract unified structured report across all sanitized pages using Gemini Multimodal Vision AI
     try:
-        report = extract_prescription_or_report_from_image(
-            image_bytes=sanitized_image_bytes,
-            mime_type="image/jpeg",
+        report = extract_prescription_or_report_from_images(
+            images_bytes=sanitized_pages_bytes,
             language=language,
         )
     except Exception as exc:
@@ -61,27 +97,31 @@ async def analyze_medical_document(
             detail=f"Failed to analyze medical document: {err_msg}",
         )
 
-    # 3. Match extracted chemical salts against Jan Aushadhi generic pricing
+    # 4. Match extracted chemical salts against Jan Aushadhi generic pricing
     generic_savings, total_monthly_saved = match_generic_salt_prices(report.medicines)
     report.generic_savings = generic_savings
     report.total_monthly_savings_inr = total_monthly_saved
 
-    # 4. Generate grandparent-friendly MP3 audio voice note in Base64 (supporting female/male doctor voices)
+    # 5. Generate grandparent-friendly MP3 audio voice note in Base64 (supporting female/male doctor voices)
     audio_data_url = await generate_voice_note_base64(
         voice_script=report.voice_script_translated,
         language=language,
         gender=voice_gender,
     )
 
-    # 5. Build 1-tap phone calendar alarm (.ics) content
+    # 6. Build 1-tap phone calendar alarm (.ics) content
     ics_calendar_text = build_medication_ics_content(report.medicines)
 
-    # 6. Encode the actual privacy-scrubbed image proof for user verification in the frontend
-    encoded_img = base64.b64encode(sanitized_image_bytes).decode("utf-8")
-    redacted_image_data_url = f"data:image/jpeg;base64,{encoded_img}"
+    # 7. Encode the actual privacy-scrubbed image proof for all pages
+    redacted_pages_urls = [
+        f"data:image/jpeg;base64,{base64.b64encode(b).decode('utf-8')}"
+        for b in sanitized_pages_bytes
+    ]
 
     return {
-        "redacted_image_data_url": redacted_image_data_url,
+        "redacted_image_data_url": redacted_pages_urls[0],
+        "redacted_pages": redacted_pages_urls,
+        "total_pages": len(redacted_pages_urls),
         "report": report,
         "audio_data_url": audio_data_url,
         "ics_calendar_text": ics_calendar_text,

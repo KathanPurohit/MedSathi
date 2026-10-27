@@ -56,7 +56,16 @@ export default function MedSaathiHomePage() {
           onSelectLanguage={setLanguage}
           selectedVoiceGender={voiceGender}
           onSelectVoiceGender={setVoiceGender}
-          onFileSelected={(file) => setPendingFile(file)}
+          onFileSelected={(file) => {
+            const isPdf =
+              file.type === "application/pdf" ||
+              file.name.toLowerCase().endsWith(".pdf");
+            if (isPdf) {
+              handleConfirmSanitizedBlob(file);
+            } else {
+              setPendingFile(file);
+            }
+          }}
           isAnalyzing={isAnalyzing}
         />
 
@@ -73,11 +82,10 @@ export default function MedSaathiHomePage() {
             <Loader2 className="h-8 w-8 text-teal-600 animate-spin mx-auto" />
             <div>
               <p className="text-sm font-bold text-slate-900">
-                Scrubbing PII & Decoding Prescription...
+                Scrubbing PII & Decoding Document...
               </p>
               <p className="text-xs text-slate-500 mt-1">
-                Matching Jan Aushadhi generic salts & generating {language}{" "}
-                voice note
+                Processing pages, matching Jan Aushadhi generic salts & generating {language} voice note
               </p>
             </div>
           </div>
@@ -94,6 +102,7 @@ export default function MedSaathiHomePage() {
           <div className="space-y-4 animate-in fade-in duration-300">
             <RedactedProofPreview
               redactedImageDataUrl={result.redacted_image_data_url}
+              redactedPages={result.redacted_pages}
             />
 
             <GrandparentVoicePlayerCard

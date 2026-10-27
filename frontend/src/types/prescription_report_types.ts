@@ -39,6 +39,8 @@ export interface SimplifiedPrescriptionReport {
 
 export interface AnalyzeDocumentApiResponse {
   redacted_image_data_url: string;
+  redacted_pages?: string[];
+  total_pages?: number;
   report: SimplifiedPrescriptionReport;
   audio_data_url: string;
   ics_calendar_text: string;

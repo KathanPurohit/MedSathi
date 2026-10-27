@@ -125,7 +125,7 @@ export function LanguageAndUploadCard({
       <input
         ref={galleryInputRef}
         type="file"
-        accept="image/*"
+        accept="image/*,application/pdf,.pdf"
         onChange={handleFileChange}
         className="hidden"
       />
@@ -145,10 +145,10 @@ export function LanguageAndUploadCard({
           type="button"
           disabled={isAnalyzing}
           onClick={() => galleryInputRef.current?.click()}
-          className="w-full py-3 px-4 rounded-2xl bg-slate-50 hover:bg-slate-100 border border-slate-200/80 text-slate-700 font-medium text-xs flex items-center justify-center gap-2 transition-all disabled:opacity-60"
+          className="w-full py-3.5 px-4 rounded-2xl bg-slate-50 hover:bg-slate-100 border border-slate-200/80 text-slate-700 font-medium text-xs flex items-center justify-center gap-2 transition-all disabled:opacity-60"
         >
-          <FileUp className="h-4 w-4 text-slate-500" />
-          <span>Or Upload Photo from Gallery</span>
+          <FileUp className="h-4 w-4 text-teal-600" />
+          <span>Upload Multi-Page PDF or Gallery Photo</span>
         </button>
       </div>
 

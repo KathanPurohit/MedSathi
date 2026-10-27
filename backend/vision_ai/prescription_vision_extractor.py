@@ -43,15 +43,16 @@ def _call_gemini_with_resilience(
     raise RuntimeError("Failed to obtain response from Gemini models.")
 
 
-def extract_prescription_or_report_from_image(
-    image_bytes: bytes, mime_type: str, language: str
+def extract_prescription_or_report_from_images(
+    images_bytes: list[bytes], language: str
 ) -> SimplifiedPrescriptionReport:
-    """Extracts structured medicine schedules, lab findings, and translated scripts using gemini-3.5-flash-lite."""
+    """Extracts structured medicine schedules, lab findings, and translated scripts across single or multi-page documents."""
     gemini_client = genai.Client(api_key=settings.GEMINI_API_KEY)
 
     system_prompt = f"""
     You are an expert Indian clinical pharmacist, medical translator, and diagnostic lab simplifier.
-    Analyze the uploaded prescription or lab report image and return a strict JSON response.
+    Analyze the uploaded prescription or lab report (which may contain one or multiple pages) and return a strict JSON response.
+    If the document has multiple pages, integrate all medicines and diagnostic tests across all pages into a single comprehensive report.
 
     Rules:
     1. TARGET LANGUAGE: Write 'patient_summary_translated', 'voice_script_translated', 'simple_purpose',
@@ -70,7 +71,7 @@ def extract_prescription_or_report_from_image(
        under 45 words, clearly explaining the main findings or when to take medicines.
     6. LAB REPORTS (Diagnostic & Blood Tests):
        - If the document is a lab or diagnostic report (e.g. CBC, HbA1c, Lipid Profile, Thyroid TSH, Liver/Kidney tests),
-         identify all abnormal or out-of-range values.
+         identify all abnormal or out-of-range values across all pages.
        - In 'lab_abnormalities_summary', list each out-of-range test with the patient's value, the reference range, and a simple explanation of what it means in {language}.
        - In 'doctor_questions', formulate 3 clear, practical questions the patient/family should ask the doctor about these test results.
        - If no medications are prescribed on the lab report, return an empty list [] for 'medicines'.
@@ -104,12 +105,15 @@ def extract_prescription_or_report_from_image(
     }}
     """
 
+    contents = [
+        types.Part.from_bytes(data=img, mime_type="image/jpeg")
+        for img in images_bytes
+    ]
+    contents.append(system_prompt)
+
     response = _call_gemini_with_resilience(
         client=gemini_client,
-        contents=[
-            types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
-            system_prompt,
-        ],
+        contents=contents,
         config=types.GenerateContentConfig(
             response_mime_type="application/json",
             temperature=0.1,
@@ -126,3 +130,10 @@ def extract_prescription_or_report_from_image(
     clean_text = clean_text.strip()
 
     return SimplifiedPrescriptionReport.model_validate_json(clean_text)
+
+
+def extract_prescription_or_report_from_image(
+    image_bytes: bytes, mime_type: str, language: str
+) -> SimplifiedPrescriptionReport:
+    """Backwards-compatible wrapper for single image extraction."""
+    return extract_prescription_or_report_from_images([image_bytes], language)

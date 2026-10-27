@@ -10,3 +10,4 @@ python-dotenv==1.0.1
 pillow>=11.0.0
 winrt-Windows.Media.Ocr>=4.0.0; sys_platform == 'win32'
 winrt-Windows.Graphics.Imaging>=4.0.0; sys_platform == 'win32'
+pypdfium2>=5.0.0
