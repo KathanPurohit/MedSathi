@@ -3,6 +3,7 @@ from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from generic_matcher.jan_aushadhi_price_matcher import match_generic_salt_prices
 from utilities.medication_ics_calendar_builder import build_medication_ics_content
+from utilities.privacy_pii_redactor import auto_redact_pii_from_image
 from utilities.voice_note_generator import generate_voice_note_base64
 from vision_ai.prescription_vision_extractor import extract_prescription_or_report_from_image
 
@@ -22,35 +23,39 @@ async def analyze_medical_document(
     file: UploadFile = File(...),
     language: str = Form("English"),
 ):
-    """Single endpoint that orchestrates Vision OCR, Generic Salt Matching, TTS Audio, and Calendar Alarms."""
+    """Single endpoint that orchestrates Offline PII Redaction, Vision OCR, Generic Salt Matching, TTS Audio, and Calendar Alarms."""
     if not file.content_type or not file.content_type.startswith("image/"):
         raise HTTPException(status_code=400, detail="Please upload a valid image file (JPEG, PNG, WEBP).")
 
-    image_bytes = await file.read()
+    raw_image_bytes = await file.read()
 
-    # 1. Extract structured report & translated summaries from image
+    # 1. Automatically blackout all patient names, IDs, phone numbers, and QR codes before AI processing
+    sanitized_image_bytes = auto_redact_pii_from_image(raw_image_bytes)
+
+    # 2. Extract structured report & translated summaries from the sanitized image
     report = extract_prescription_or_report_from_image(
-        image_bytes=image_bytes,
-        mime_type=file.content_type,
+        image_bytes=sanitized_image_bytes,
+        mime_type="image/jpeg",
         language=language,
     )
 
-    # 2. Match extracted chemical salts against Jan Aushadhi generic pricing
+    # 3. Match extracted chemical salts against Jan Aushadhi generic pricing
     generic_savings, total_monthly_saved = match_generic_salt_prices(report.medicines)
     report.generic_savings = generic_savings
     report.total_monthly_savings_inr = total_monthly_saved
 
-    # 3. Generate grandparent-friendly MP3 audio voice note in Base64
+    # 4. Generate grandparent-friendly MP3 audio voice note in Base64
     audio_data_url = generate_voice_note_base64(
         voice_script=report.voice_script_translated,
         language=language,
     )
 
-    # 4. Build 1-tap phone calendar alarm (.ics) content
+    # 5. Build 1-tap phone calendar alarm (.ics) content
     ics_calendar_text = build_medication_ics_content(report.medicines)
 
-    encoded_img = base64.b64encode(image_bytes).decode("utf-8")
-    redacted_image_data_url = f"data:{file.content_type};base64,{encoded_img}"
+    # 6. Encode the actual privacy-scrubbed image proof for user verification in the frontend
+    encoded_img = base64.b64encode(sanitized_image_bytes).decode("utf-8")
+    redacted_image_data_url = f"data:image/jpeg;base64,{encoded_img}"
 
     return {
         "redacted_image_data_url": redacted_image_data_url,

@@ -36,7 +36,10 @@ def extract_prescription_or_report_from_image(
          identify all abnormal or out-of-range values.
        - In 'lab_abnormalities_summary', list each out-of-range test with the patient's value, the reference range, and a simple explanation of what it means in {language}.
        - In 'doctor_questions', formulate 3 clear, practical questions the patient/family should ask the doctor about these test results.
-       - If no medications are prescribed on the lab report, return an empty list [] for 'medicines'.
+    7. ZERO-PII PRIVACY POLICY:
+       - Never include or output the patient's name, age, gender, phone number, address, hospital name, or any personal identifying information in 'patient_summary_translated' or 'voice_script_translated'.
+       - Under NO circumstances greet the patient by name (e.g. NEVER say "Hello Lyubochka" or use any person's name).
+       - Always address the patient warmly and neutrally (e.g. "Hello! Here is your health summary...", or in Gujarati: "નમસ્તે, તમારો રિપોર્ટ તૈયાર છે...", or in Hindi: "नमस्ते, आपकी रिपोर्ट तैयार है...").
 
     Respond STRICTLY with a valid JSON object conforming to this JSON Schema:
     {schema_json}
