@@ -8,12 +8,12 @@ from schemas.prescription_response_schema import SimplifiedPrescriptionReport
 def extract_prescription_or_report_from_image(
     image_bytes: bytes, mime_type: str, language: str
 ) -> SimplifiedPrescriptionReport:
-    """Extracts structured medicine schedules, lab findings, and translated scripts using Gemini 2.5 Flash."""
+    """Extracts structured medicine schedules, lab findings, and translated scripts using Gemini."""
     gemini_client = genai.Client(api_key=settings.GEMINI_API_KEY)
     schema_json = json.dumps(SimplifiedPrescriptionReport.model_json_schema(), indent=2)
 
     system_prompt = f"""
-    You are an expert Indian clinical pharmacist and medical translator.
+    You are an expert Indian clinical pharmacist, medical translator, and diagnostic lab simplifier.
     Analyze the uploaded prescription or lab report image and return a strict JSON response matching the schema below.
 
     Rules:
@@ -30,14 +30,20 @@ def extract_prescription_or_report_from_image(
     4. HOUSEHOLD WARNINGS: Flag real Indian dietary clashes (e.g., avoid taking Iron/Calcium/Thyroid tablets with morning Chai or Milk;
        warn if two prescribed brands share the same salt like Paracetamol).
     5. VOICE SCRIPT: Make 'voice_script_translated' sound like a caring family member speaking directly to an elder in {language},
-       under 45 words, clearly stating when to take each medicine.
+       under 45 words, clearly explaining the main findings or when to take medicines.
+    6. LAB REPORTS (Diagnostic & Blood Tests):
+       - If the document is a lab or diagnostic report (e.g. CBC, HbA1c, Lipid Profile, Thyroid TSH, Liver/Kidney tests, Urine analysis),
+         identify all abnormal or out-of-range values.
+       - In 'lab_abnormalities_summary', list each out-of-range test with the patient's value, the reference range, and a simple explanation of what it means in {language}.
+       - In 'doctor_questions', formulate 3 clear, practical questions the patient/family should ask the doctor about these test results.
+       - If no medications are prescribed on the lab report, return an empty list [] for 'medicines'.
 
     Respond STRICTLY with a valid JSON object conforming to this JSON Schema:
     {schema_json}
     """
 
     response = gemini_client.models.generate_content(
-        model="gemini-2.5-flash",
+        model="gemini-3.8-flash",
         contents=[
             types.Part.from_bytes(data=image_bytes, mime_type=mime_type),
             system_prompt,
