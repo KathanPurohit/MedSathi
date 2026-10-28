@@ -8,6 +8,7 @@ gTTS==2.5.3
 edge-tts>=7.0.0
 python-dotenv==1.0.1
 pillow>=11.0.0
+pytesseract>=0.3.10
 winrt-Windows.Media.Ocr>=4.0.0; sys_platform == 'win32'
 winrt-Windows.Graphics.Imaging>=4.0.0; sys_platform == 'win32'
 pypdfium2>=5.0.0

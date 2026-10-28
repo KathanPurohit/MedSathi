@@ -41,8 +41,63 @@ CLINICAL_TABLE_PATTERNS = [
 ]
 
 
-async def _run_winrt_ocr(image_bytes: bytes):
-    """Uses native Windows Media OCR to detect words and lines with bounding boxes."""
+class OcrBoundingRect:
+    def __init__(self, x: int, y: int, width: int, height: int):
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+
+
+class OcrWord:
+    def __init__(self, text: str, bounding_rect: OcrBoundingRect):
+        self.text = text
+        self.bounding_rect = bounding_rect
+
+
+class OcrLine:
+    def __init__(self, text: str, words: list[OcrWord]):
+        self.text = text
+        self.words = words
+
+
+async def _run_ocr(pil_img: Image.Image, image_bytes: bytes) -> list[OcrLine]:
+    """Runs OCR using Tesseract (cross-platform / Linux Docker) with WinRT fallback on Windows."""
+    # 1. Try Tesseract first (primary cross-platform engine)
+    try:
+        import pytesseract
+
+        data = pytesseract.image_to_data(pil_img, output_type=pytesseract.Output.DICT)
+        lines_dict: dict[tuple, list[OcrWord]] = {}
+        total_items = len(data.get("text", []))
+
+        for i in range(total_items):
+            text = str(data["text"][i]).strip()
+            if not text:
+                continue
+
+            line_key = (data["block_num"][i], data["par_num"][i], data["line_num"][i])
+            word = OcrWord(
+                text=text,
+                bounding_rect=OcrBoundingRect(
+                    x=int(data["left"][i]),
+                    y=int(data["top"][i]),
+                    width=int(data["width"][i]),
+                    height=int(data["height"][i]),
+                ),
+            )
+            lines_dict.setdefault(line_key, []).append(word)
+
+        if lines_dict:
+            return [
+                OcrLine(text=" ".join(w.text for w in words), words=words)
+                for words in lines_dict.values()
+            ]
+    except Exception as tesseract_err:
+        # If tesseract is not installed or fails, try WinRT fallback on Windows
+        pass
+
+    # 2. Fallback to native Windows OCR if available
     try:
         from winrt.windows.media.ocr import OcrEngine
         from winrt.windows.graphics.imaging import BitmapDecoder
@@ -62,9 +117,23 @@ async def _run_winrt_ocr(image_bytes: bytes):
             return []
 
         ocr_result = await engine.recognize_async(bitmap)
-        return ocr_result.lines
-    except Exception as exc:
-        print(f"[Privacy Shield Error] WinRT OCR failed: {exc}")
+        winrt_lines: list[OcrLine] = []
+        for line in ocr_result.lines:
+            words = [
+                OcrWord(
+                    text=w.text,
+                    bounding_rect=OcrBoundingRect(
+                        x=int(w.bounding_rect.x),
+                        y=int(w.bounding_rect.y),
+                        width=int(w.bounding_rect.width),
+                        height=int(w.bounding_rect.height),
+                    ),
+                )
+                for w in line.words
+            ]
+            winrt_lines.append(OcrLine(text=line.text, words=words))
+        return winrt_lines
+    except Exception:
         return []
 
 
@@ -78,7 +147,7 @@ async def auto_redact_pii_from_image(image_bytes: bytes) -> bytes:
     draw = ImageDraw.Draw(pil_img)
     img_width, img_height = pil_img.size
 
-    lines = await _run_winrt_ocr(image_bytes)
+    lines = await _run_ocr(pil_img, image_bytes)
     if not lines:
         return image_bytes
 

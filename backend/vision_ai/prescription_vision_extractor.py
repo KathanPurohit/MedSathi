@@ -79,6 +79,8 @@ def extract_prescription_or_report_from_images(
        - Never include or output the patient's name, age, gender, phone number, address, hospital name, or any personal identifying information in 'patient_summary_translated' or 'voice_script_translated'.
        - Under NO circumstances greet the patient by name (e.g. NEVER say "Hello Lyubochka" or use any person's name).
        - Always address the patient warmly and neutrally (e.g. "Hello! Here is your health summary...", or in Gujarati: "નમસ્તે, તમારો રિપોર્ટ તૈયાર છે...", or in Hindi: "नमस्ते, आपकी रिपोर्ट तैयार है...").
+    8. ACTUAL PHARMACY BRAND MRP:
+       - In 'estimated_branded_strip_inr', provide the REAL, ACCURATE current Indian retail market MRP (as sold on Tata 1mg / Apollo Pharmacy / PharmEasy for a standard strip of 10 or 15 tablets) for the specific prescribed brand name (e.g. Augmentin 625 Duo = ~223 INR, Pan-D = ~199 INR, Telma 40 = ~223 INR, Dolo 650 = ~34 INR, Shelcal 500 = ~148 INR, Glycomet-GP 2 = ~188 INR, Montair-LC = ~182 INR, Atorva 20 = ~285 INR). Do NOT mock or invent rough multipliers.
 
     Respond STRICTLY with a valid JSON object matching this structure:
     {{
