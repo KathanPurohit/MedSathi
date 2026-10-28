@@ -67,8 +67,26 @@ def extract_prescription_or_report_from_images(
        into their exact generic chemical salt name in English for catalog price matching.
     4. HOUSEHOLD WARNINGS: Flag real Indian dietary clashes (e.g., avoid taking Iron/Calcium/Thyroid tablets with morning Chai or Milk;
        warn if two prescribed brands share the same salt like Paracetamol).
-    5. VOICE SCRIPT: Make 'voice_script_translated' sound like a caring family member speaking directly to an elder in {language},
-       under 45 words, clearly explaining the main findings or when to take medicines.
+    5. NATURAL, NON-REPETITIVE SPOKEN VOICE SCRIPT:
+       - 'voice_script_translated': This is the EXACT voice note heard by the patient or elder in {language}. It must sound like a warm, caring Indian physician or family caregiver speaking directly to them in fluent, natural conversational speech.
+       - STRICT ANTI-REPETITION RULES:
+         * NEVER repeat any medicine's name multiple times across the script.
+         * For medicines taken multiple times a day (e.g. 1-0-1 or twice daily like Glycomet-GP 2), state the schedule ONCE in natural speech (e.g. "For your sugar, take Glycomet twice a day—with your morning and night meals"). Do NOT mention its name again later in the night section.
+         * For as-needed / SOS medicines (like Dolo 650 for pain/fever), clearly state they are ONLY to be taken if there is pain or fever, not as a mandatory daily pill.
+         * NEVER read clinical prefixes or package terms aloud (do NOT say "Tablet", "Capsule PR", "Film Coated", "IP", "10's"). Say only the familiar brand name: "Pan-D", "Telma 40", "Shelcal", "Atorva", "Dolo".
+       - NATURAL CONVERSATIONAL FLOW (NOT A ROBOTIC CHECKLIST):
+         * Connect the instructions smoothly with natural spoken phrasing:
+           - Start with an empty stomach reminder (e.g. 30 minutes before breakfast for acidity).
+           - Flow into post-breakfast medicines (e.g. for blood pressure).
+           - Flow into afternoon medicines with lunch (e.g. calcium).
+           - Flow into evening/bedtime medicines with dinner (e.g. cholesterol).
+           - Weave important food rules smoothly (e.g. 2-hour gap between calcium and tea/milk, low-salt diet).
+         * Avoid robotic checklist transitions like "Morning list: ... Afternoon list: ...". Use warm, flowing conversational sentences.
+       - REFERENCE FLOW IN {language}:
+         * If {language} is Gujarati: "નમસ્તે! ડૉક્ટરે તમારા માટે આપેલી દવાઓની વિગત આ પ્રમાણે છે. સવારે નાસ્તાના અડધો કલાક પહેલાં ભૂખ્યા પેટે એસિડિટી માટે પેન-ડી લેવાની છે. નાસ્તા પછી બીપી માટે ટેલ્મા-40 લેશો. ડાયાબિટીસ માટે ગ્લાયકોમેટ દિવસમાં બે વાર—સવારે અને રાત્રે જમવાની સાથે લેવાની છે. બપોરે જમ્યા પછી હાડકાં માટે શેલકલ લેશો, પણ ખાસ ધ્યાન રાખજો કે આ ગોળી ચા કે દૂધ સાથે ન લેવાય, વચ્ચે બે કલાકનું અંતર રાખજો. રાત્રે જમ્યા પછી કોલેસ્ટ્રોલ માટે એટોર્વા લેશો. જો શરીર દુખે કે તાવ જેવું લાગે તો જ જરૂર મુજબ ડોલો લેજો. સમયસર દવાઓ લેજો અને સાચવજો!"
+         * If {language} is Hindi: "नमस्ते! आपके डॉक्टर द्वारा बताई गई दवाइयों की पूरी जानकारी इस प्रकार है। सुबह नाश्ते से आधा घंटा पहले खाली पेट गैस और एसिडिटी के लिए पैन-ડી लें। नाश्ते के बाद ब्लड प्रेशर के लिए टेल्मा-40 लें। शुगर के लिए ग्लाइकोमेट दिन में दो बार—सुबह और रात के भोजन के साथ लें। दोपहर के खाने के बाद हड्डियों के लिए शेलकल लें, पर ध्यान रखें कि इसे चाय या दूध के साथ न लें, कम से कम दो घंटे का अंतर रखें। रात को खाने के बाद कोलेस्ट्रॉल के लिए एटोर्वा लें। अगर शरीर दर्द या हल्का बुखार हो तो ही डोलो लें। अपना ख्याल रखें और समय पर दवाइयां लें।"
+         * If {language} is English: "Hello! Here is your medicine schedule from your doctor. First thing in the morning, 30 minutes before breakfast on an empty stomach, take Pan-D for acidity. After breakfast, take Telma-40 for your blood pressure. For diabetes, take Glycomet twice daily—with your morning and night meals. After lunch, take Shelcal for bone strength, but please keep a 2-hour gap between this and your morning tea or milk. At bedtime after dinner, take Atorva for cholesterol. If you have fever or body aches, take Dolo only as needed. Please take your medicines on time and take care!"
+       - 'patient_summary_translated': Provide an equally smooth, comprehensive written paragraph in {language} explaining all medicines, daily routine, and precautions clearly.
     6. LAB REPORTS (Diagnostic & Blood Tests):
        - If the document is a lab or diagnostic report (e.g. CBC, HbA1c, Lipid Profile, Thyroid TSH, Liver/Kidney tests),
          identify all abnormal or out-of-range values across all pages.
@@ -78,14 +96,14 @@ def extract_prescription_or_report_from_images(
     7. ZERO-PII PRIVACY POLICY:
        - Never include or output the patient's name, age, gender, phone number, address, hospital name, or any personal identifying information in 'patient_summary_translated' or 'voice_script_translated'.
        - Under NO circumstances greet the patient by name (e.g. NEVER say "Hello Lyubochka" or use any person's name).
-       - Always address the patient warmly and neutrally (e.g. "Hello! Here is your health summary...", or in Gujarati: "નમસ્તે, તમારો રિપોર્ટ તૈયાર છે...", or in Hindi: "नमस्ते, आपकी रिपोर्ट तैयार है...").
+       - Always address the patient warmly and neutrally (e.g. "Hello! Here is your health summary...", or in Gujarati: "નમસ્તે, તમારો સંપૂર્ણ દવા અને સ્વાસ્થ્ય અહેવાલ તૈયાર છે...", or in Hindi: "नमस्ते, आपकी पूरी दवाइयों और स्वास्थ्य की जानकारी तैयार है...").
     8. ACTUAL PHARMACY BRAND MRP:
        - In 'estimated_branded_strip_inr', provide the REAL, ACCURATE current Indian retail market MRP (as sold on Tata 1mg / Apollo Pharmacy / PharmEasy for a standard strip of 10 or 15 tablets) for the specific prescribed brand name (e.g. Augmentin 625 Duo = ~223 INR, Pan-D = ~199 INR, Telma 40 = ~223 INR, Dolo 650 = ~34 INR, Shelcal 500 = ~148 INR, Glycomet-GP 2 = ~188 INR, Montair-LC = ~182 INR, Atorva 20 = ~285 INR). Do NOT mock or invent rough multipliers.
 
     Respond STRICTLY with a valid JSON object matching this structure:
     {{
-      "patient_summary_translated": "Warm, plain-language summary in {language}",
-      "voice_script_translated": "Under 45 words caring script in {language}",
+      "patient_summary_translated": "Comprehensive, plain-language written summary in {language} covering all prescribed medicines, purposes, and precautions",
+      "voice_script_translated": "Exhaustive, caring, chronological audio speech in {language} covering every medicine by name, morning/afternoon/night schedule, meal rules, and warnings",
       "lab_abnormalities_summary": ["Test name: result vs reference range - simple explanation in {language}"],
       "doctor_questions": ["Question 1 in {language}", "Question 2 in {language}", "Question 3 in {language}"],
       "medicines": [
