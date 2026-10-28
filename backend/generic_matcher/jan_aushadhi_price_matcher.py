@@ -2,13 +2,12 @@ import csv
 import re
 from pathlib import Path
 from typing import List, Optional, Tuple
-from schemas.prescription_response_schema import ExtractedMedicine, GenericMatchResult
 
 from generic_matcher.brand_price_registry import get_verified_brand_price
+from schemas.prescription_response_schema import ExtractedMedicine, GenericMatchResult
 
 CATALOG_PATH = Path(__file__).parent / "jan_aushadhi_catalog.csv"
 _CATALOG_CACHE: Optional[List[dict]] = None
-
 
 
 def load_jan_aushadhi_catalog() -> List[dict]:
@@ -26,7 +25,6 @@ def _normalize_text(s: str) -> str:
     s = s.replace("amoxicillin", "amoxycillin").replace("paracetamol", "paracetamol")
     s = re.sub(r"(\d+)\s*(mg|mcg|iu|gm|ml)\b", r"\1\2", s)
     return s
-
 
 
 def _find_best_catalog_match(query_salt: str, catalog: List[dict]) -> Optional[dict]:
@@ -80,6 +78,56 @@ def _find_best_catalog_match(query_salt: str, catalog: List[dict]) -> Optional[d
     return None
 
 
+def _resolve_branded_pricing(med: ExtractedMedicine, matched_row: Optional[dict]) -> Tuple[float, str]:
+    """Resolves actual branded retail MRP from verified pharmacy databases or catalog benchmarks."""
+    brand_info = get_verified_brand_price(med.brand_name)
+    if brand_info:
+        return float(brand_info["actual_mrp"]), f"{brand_info['manufacturer']} ({brand_info['pack_size']})"
+
+    if med.estimated_branded_strip_inr and med.estimated_branded_strip_inr > 0:
+        return float(med.estimated_branded_strip_inr), "Prescription Retail MRP"
+
+    if matched_row and float(matched_row.get("branded_strip_inr") or 0.0) > 0:
+        return float(matched_row["branded_strip_inr"]), "Market Benchmark"
+
+    return 45.0, "Standard Retail"
+
+
+def _build_generic_match(
+    med: ExtractedMedicine,
+    matched_row: Optional[dict],
+    branded_price: float,
+    branded_source: str,
+) -> Tuple[GenericMatchResult, float]:
+    """Builds a verified GenericMatchResult comparing branded vs Jan Aushadhi pricing."""
+    if matched_row:
+        generic_price = float(matched_row["jan_aushadhi_strip_inr"])
+        salt_display = matched_row["standard_salt_name"]
+        drug_code = matched_row.get("drug_code", "")
+        source = (
+            f"Verified PMBJP #{drug_code} vs {branded_source}"
+            if drug_code
+            else f"Verified PMBJP vs {branded_source}"
+        )
+    else:
+        generic_price = max(med.estimated_generic_strip_inr, 10.0)
+        salt_display = f"{med.active_chemical_salt} ({med.dosage_strength})"
+        source = f"AI Salt Estimate vs {branded_source}"
+
+    # Monthly savings based on standard 2 strips (20-30 tablets) per month
+    monthly_saved = round(max((branded_price - generic_price) * 2, 0.0), 2)
+
+    result = GenericMatchResult(
+        prescribed_brand=med.brand_name,
+        generic_salt_name=salt_display,
+        branded_strip_price_inr=branded_price,
+        jan_aushadhi_strip_price_inr=generic_price,
+        monthly_savings_inr=monthly_saved,
+        match_source=source,
+    )
+    return result, monthly_saved
+
+
 def match_generic_salt_prices(
     medicines: List[ExtractedMedicine],
 ) -> Tuple[List[GenericMatchResult], float]:
@@ -91,48 +139,10 @@ def match_generic_salt_prices(
     for med in medicines:
         full_query = f"{med.active_chemical_salt} {med.dosage_strength}"
         matched_row = _find_best_catalog_match(full_query, catalog)
+        branded_price, branded_source = _resolve_branded_pricing(med, matched_row)
+        match_result, monthly_saved = _build_generic_match(med, matched_row, branded_price, branded_source)
 
-        # 1. Determine Actual Branded Price:
-        # Check verified real-world Indian brand registry first (Tata 1mg / Apollo Pharmacy MRP)
-        brand_info = get_verified_brand_price(med.brand_name)
-        if brand_info:
-            branded_price = float(brand_info["actual_mrp"])
-            branded_source = f"{brand_info['manufacturer']} ({brand_info['pack_size']})"
-        elif med.estimated_branded_strip_inr and med.estimated_branded_strip_inr > 0:
-            branded_price = float(med.estimated_branded_strip_inr)
-            branded_source = "Prescription Retail MRP"
-        elif matched_row and float(matched_row.get("branded_strip_inr") or 0.0) > 0:
-            branded_price = float(matched_row["branded_strip_inr"])
-            branded_source = "Market Benchmark"
-        else:
-            branded_price = 45.0
-            branded_source = "Standard Retail"
-
-        if matched_row:
-            generic_price = float(matched_row["jan_aushadhi_strip_inr"])
-            salt_display = matched_row["standard_salt_name"]
-            drug_code = matched_row.get("drug_code", "")
-            source = f"Verified PMBJP #{drug_code} vs {branded_source}" if drug_code else f"Verified PMBJP vs {branded_source}"
-        else:
-            generic_price = max(med.estimated_generic_strip_inr, 10.0)
-            salt_display = f"{med.active_chemical_salt} ({med.dosage_strength})"
-            source = f"AI Salt Estimate vs {branded_source}"
-
-        # Monthly savings based on standard 2 strips (20-30 tablets) per month
-        monthly_saved = round(max((branded_price - generic_price) * 2, 0.0), 2)
         total_monthly_savings += monthly_saved
-
-        savings_list.append(
-            GenericMatchResult(
-                prescribed_brand=med.brand_name,
-                generic_salt_name=salt_display,
-                branded_strip_price_inr=branded_price,
-                jan_aushadhi_strip_price_inr=generic_price,
-                monthly_savings_inr=monthly_saved,
-                match_source=source,
-            )
-        )
+        savings_list.append(match_result)
 
     return savings_list, round(total_monthly_savings, 2)
-
-

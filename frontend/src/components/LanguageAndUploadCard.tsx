@@ -1,6 +1,8 @@
 "use client";
 
 import { useRef } from "react";
+import Image from "next/image";
+import logoImg from "../../public/logo.png";
 import { Camera, FileUp, Globe, Lock, Mic } from "lucide-react";
 import { SupportedLanguage, VoiceGender } from "@/types/prescription_report_types";
 
@@ -50,6 +52,26 @@ export function LanguageAndUploadCard({
 
   return (
     <section className="rounded-3xl bg-white border border-slate-200/80 p-5 shadow-sm">
+      {/* Brand Hero Welcome Banner */}
+      <div className="flex items-center gap-3 pb-3.5 mb-3.5 border-b border-slate-100">
+        <div className="relative h-12 w-12 shrink-0 rounded-2xl bg-gradient-to-br from-emerald-500/10 to-teal-600/15 border border-emerald-500/20 flex items-center justify-center p-1.5 shadow-sm">
+          <Image
+            src={logoImg}
+            alt="MedSaathi Logo"
+            className="h-full w-full object-contain"
+            priority
+          />
+        </div>
+        <div>
+          <h2 className="text-sm font-bold text-slate-900 leading-tight">
+            MedSaathi AI Prescription Assistant
+          </h2>
+          <p className="text-[11px] text-slate-500 leading-tight mt-0.5">
+            Zero-PII local scrub • Jan Aushadhi generic savings
+          </p>
+        </div>
+      </div>
+
       <div className="flex items-center justify-between mb-3">
         <span className="text-xs font-semibold uppercase tracking-wider text-slate-400 flex items-center gap-1.5">
           <Globe className="h-3.5 w-3.5 text-teal-600" />

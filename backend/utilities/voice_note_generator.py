@@ -3,6 +3,11 @@ import io
 import logging
 from gtts import gTTS
 
+try:
+    import edge_tts
+except ImportError:
+    edge_tts = None
+
 # Neural natural caregiver & doctor voices via Microsoft Edge Neural TTS
 EDGE_VOICE_MAP = {
     "English": {
@@ -34,7 +39,8 @@ async def generate_voice_note_base64(voice_script: str, language: str = "English
     print(f"[Voice AI] Generating audio for language='{language}' gender='{normalized_gender}' using voice='{voice_name}'")
 
     try:
-        import edge_tts
+        if edge_tts is None:
+            raise RuntimeError("edge_tts package is not available.")
 
         communicate = edge_tts.Communicate(voice_script, voice_name)
         mp3_buffer = io.BytesIO()

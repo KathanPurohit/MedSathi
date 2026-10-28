@@ -6,6 +6,11 @@ export const metadata: Metadata = {
   description:
     "Decode doctor prescriptions into Hindi, Gujarati & English voice notes, visual fridge schedules, and Jan Aushadhi generic medicine savings.",
   manifest: "/manifest.json",
+  icons: {
+    icon: "/logo.png",
+    shortcut: "/logo.png",
+    apple: "/logo.png",
+  },
 };
 
 export const viewport: Viewport = {

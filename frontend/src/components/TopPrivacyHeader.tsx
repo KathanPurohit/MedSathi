@@ -1,19 +1,26 @@
-import { ShieldCheck, Sparkles } from "lucide-react";
+import Image from "next/image";
+import logoImg from "../../public/logo.png";
+import { ShieldCheck } from "lucide-react";
 
 /** Sticky frosted-glass mobile navigation bar highlighting zero-PII privacy protection. */
 export function TopPrivacyHeader() {
   return (
-    <header className="sticky top-0 z-30 backdrop-blur-xl bg-white/80 border-b border-slate-200/80 px-4 py-3.5">
+    <header className="sticky top-0 z-30 backdrop-blur-xl bg-white/80 border-b border-slate-200/80 px-4 py-3">
       <div className="max-w-md mx-auto flex items-center justify-between">
         <div className="flex items-center gap-2.5">
-          <div className="h-9 w-9 rounded-xl bg-gradient-to-br from-teal-600 to-emerald-500 flex items-center justify-center text-white shadow-sm shadow-teal-600/20">
-            <Sparkles className="h-5 w-5" />
+          <div className="relative h-11 w-11 shrink-0 rounded-2xl bg-gradient-to-br from-emerald-500/15 to-teal-600/20 border border-emerald-500/25 flex items-center justify-center p-1 shadow-sm">
+            <Image
+              src={logoImg}
+              alt="MedSaathi Logo"
+              className="h-full w-full object-contain"
+              priority
+            />
           </div>
           <div>
             <h1 className="text-base font-bold tracking-tight text-slate-900 leading-none">
               MedSaathi
             </h1>
-            <p className="text-[11px] font-medium text-slate-500 mt-0.5">
+            <p className="text-[11px] font-medium text-slate-500 mt-1">
               Rx & Lab Simplifier • Jan Aushadhi Finder
             </p>
           </div>
