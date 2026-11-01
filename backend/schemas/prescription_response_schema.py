@@ -3,18 +3,18 @@ from pydantic import BaseModel, Field
 
 
 class ExtractedMedicine(BaseModel):
-    """Schema for a single medicine extracted from a prescription image."""
-    brand_name: str = Field(description="Prescribed brand name on the document")
-    active_chemical_salt: str = Field(description="Exact generic chemical salt and composition")
-    dosage_strength: str = Field(description="Strength per tablet/dose, e.g., 40mg or 500mg")
-    morning_dose: bool = Field(description="True if taken in the morning")
-    afternoon_dose: bool = Field(description="True if taken in the afternoon")
-    night_dose: bool = Field(description="True if taken at night")
-    meal_instruction: str = Field(description="Before Food, After Food, or With Food")
-    duration_days: int = Field(default=5, description="Number of days prescribed")
-    estimated_branded_strip_inr: float = Field(description="Estimated Indian retail MRP for 1 strip of 10 tablets")
-    estimated_generic_strip_inr: float = Field(description="Estimated Jan Aushadhi generic MRP for 1 strip")
-    simple_purpose: str = Field(description="1-line plain-language purpose in the requested language")
+    """Schema for a single medicine extracted from a prescription or lab report."""
+    brand_name: str = Field(default="Medicine", description="Prescribed brand name on the document")
+    active_chemical_salt: Optional[str] = Field(default="", description="Exact generic chemical salt and composition")
+    dosage_strength: Optional[str] = Field(default="Standard", description="Strength per tablet/dose, e.g., 40mg or 500mg")
+    morning_dose: bool = Field(default=False, description="True if taken in the morning")
+    afternoon_dose: bool = Field(default=False, description="True if taken in the afternoon")
+    night_dose: bool = Field(default=False, description="True if taken at night")
+    meal_instruction: Optional[str] = Field(default="After Food", description="Before Food, After Food, or With Food")
+    duration_days: Optional[int] = Field(default=5, description="Number of days prescribed")
+    estimated_branded_strip_inr: Optional[float] = Field(default=0.0, description="Estimated Indian retail MRP for 1 strip")
+    estimated_generic_strip_inr: Optional[float] = Field(default=0.0, description="Estimated Jan Aushadhi generic MRP for 1 strip")
+    simple_purpose: Optional[str] = Field(default="", description="1-line plain-language purpose in the requested language")
     food_or_drug_clash_warning: Optional[str] = Field(
         default=None,
         description="Practical household food or duplicate salt warning in the requested language"

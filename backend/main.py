@@ -205,14 +205,40 @@ async def analyze_medical_document(
     if not raw_bytes:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
 
-    # 1. Render all document pages with safe memory bounds
-    page_images_bytes = _validate_and_extract_pages(raw_bytes, file.filename, file.content_type)
+    is_pdf = (
+        raw_bytes.startswith(b"%PDF")
+        or (file.content_type and "pdf" in file.content_type.lower())
+        or (file.filename and file.filename.lower().endswith(".pdf"))
+    )
 
-    # 2. Blackout patient demographics and identifiers (with timeout protection)
-    sanitized_pages_bytes = await _redact_document_pages(page_images_bytes)
+    if is_pdf:
+        # 1. Multi-page or single-page PDF: Gemini accepts raw PDF bytes natively with zero server RAM bloat!
+        report = _extract_report_with_resilience([raw_bytes], language)
 
-    # 3. Multimodal vision extraction via Gemini
-    report = _extract_report_with_resilience(sanitized_pages_bytes, language)
+        # 2. Render lightweight 1st-page thumbnail for the frontend preview card
+        preview_page_bytes: list[bytes] = []
+        try:
+            pdf = pdfium.PdfDocument(raw_bytes)
+            if len(pdf) > 0:
+                first_page = pdf[0].render(scale=0.8).to_pil().convert("RGB")
+                if max(first_page.size) > 800:
+                    first_page.thumbnail((800, 800), Image.Resampling.LANCZOS)
+                buf = io.BytesIO()
+                first_page.save(buf, format="JPEG", quality=75, optimize=True)
+                preview_page_bytes.append(buf.getvalue())
+        except Exception as exc:
+            logging.warning(f"Could not render PDF preview thumbnail: {exc}")
+
+        sanitized_pages_bytes = preview_page_bytes
+    else:
+        # 1. Render all document pages with safe memory bounds
+        page_images_bytes = _validate_and_extract_pages(raw_bytes, file.filename, file.content_type)
+
+        # 2. Blackout patient demographics and identifiers (with timeout protection)
+        sanitized_pages_bytes = await _redact_document_pages(page_images_bytes)
+
+        # 3. Multimodal vision extraction via Gemini
+        report = _extract_report_with_resilience(sanitized_pages_bytes, language)
 
     # 4. Generic pricing & savings matching
     generic_savings, total_monthly_saved = match_generic_salt_prices(report.medicines)

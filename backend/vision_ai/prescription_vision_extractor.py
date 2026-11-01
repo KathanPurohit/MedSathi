@@ -126,10 +126,12 @@ def extract_prescription_or_report_from_images(
     }}
     """
 
-    contents = [
-        types.Part.from_bytes(data=img, mime_type="image/jpeg")
-        for img in images_bytes
-    ]
+    contents = []
+    for item in images_bytes:
+        if item.startswith(b"%PDF"):
+            contents.append(types.Part.from_bytes(data=item, mime_type="application/pdf"))
+        else:
+            contents.append(types.Part.from_bytes(data=item, mime_type="image/jpeg"))
     contents.append(system_prompt)
 
     response = _call_gemini_with_resilience(
