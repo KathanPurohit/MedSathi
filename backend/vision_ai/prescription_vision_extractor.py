@@ -128,7 +128,7 @@ def extract_prescription_or_report_from_images(
 
     contents = []
     for item in images_bytes:
-        if item.startswith(b"%PDF"):
+        if item.startswith(b"%PDF") or b"%PDF" in item[:1024]:
             contents.append(types.Part.from_bytes(data=item, mime_type="application/pdf"))
         else:
             contents.append(types.Part.from_bytes(data=item, mime_type="image/jpeg"))

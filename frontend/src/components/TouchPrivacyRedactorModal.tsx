@@ -33,9 +33,14 @@ export function TouchPrivacyRedactorModal({
   const [imageElement, setImageElement] = useState<HTMLImageElement | null>(
     null
   );
+  const [pdfObjectUrl, setPdfObjectUrl] = useState<string | null>(null);
 
   useEffect(() => {
-    if (isPdf) return;
+    if (isPdf) {
+      const url = URL.createObjectURL(file);
+      setPdfObjectUrl(url);
+      return () => URL.revokeObjectURL(url);
+    }
 
     const img = new Image();
     const objectUrl = URL.createObjectURL(file);
@@ -114,21 +119,37 @@ export function TouchPrivacyRedactorModal({
         </div>
 
         {isPdf ? (
-          <div className="p-6 bg-slate-50 flex-1 flex flex-col items-center justify-center text-center space-y-4">
-            <div className="h-16 w-16 rounded-2xl bg-teal-100/70 border border-teal-200/80 flex items-center justify-center text-teal-700 shadow-sm">
-              <FileText className="h-8 w-8" />
+          <div className="p-4 bg-slate-50 flex-1 flex flex-col space-y-3 overflow-hidden">
+            <div className="flex items-center justify-between px-1">
+              <div className="flex items-center gap-2 min-w-0">
+                <FileText className="h-5 w-5 text-teal-600 shrink-0" />
+                <span className="text-xs font-bold text-slate-900 truncate">
+                  {file.name}
+                </span>
+              </div>
+              <span className="text-[11px] text-slate-500 font-medium shrink-0 ml-2">
+                {(file.size / (1024 * 1024)).toFixed(2)} MB PDF
+              </span>
             </div>
 
-            <div className="space-y-1">
-              <h3 className="text-sm font-bold text-slate-900 truncate max-w-[280px]">
-                {file.name}
-              </h3>
-              <p className="text-xs text-slate-500 font-medium">
-                {(file.size / (1024 * 1024)).toFixed(2)} MB • PDF Document
-              </p>
+            {/* Embedded Native PDF Viewer on PC / Tablet */}
+            <div className="w-full h-48 sm:h-56 rounded-2xl overflow-hidden border border-slate-200/90 bg-white shadow-inner relative flex items-center justify-center">
+              {pdfObjectUrl ? (
+                <object
+                  data={`${pdfObjectUrl}#toolbar=0&navpanes=0`}
+                  type="application/pdf"
+                  className="w-full h-full"
+                >
+                  <div className="p-4 text-center space-y-1">
+                    <FileText className="h-10 w-10 text-teal-600 mx-auto" />
+                    <p className="text-xs font-semibold text-slate-700">{file.name}</p>
+                    <p className="text-[10px] text-slate-400">PDF Ready for Privacy Scrub</p>
+                  </div>
+                </object>
+              ) : null}
             </div>
 
-            <div className="w-full rounded-2xl bg-white border border-slate-200/90 p-4 text-left space-y-2 shadow-sm text-xs">
+            <div className="w-full rounded-2xl bg-white border border-slate-200/90 p-3.5 text-left space-y-1.5 shadow-sm text-xs">
               <div className="flex items-center gap-2 text-teal-800 font-semibold">
                 <ShieldCheck className="h-4 w-4 text-teal-600" />
                 <span>Dual-Layer Privacy Shield Active</span>
@@ -136,7 +157,7 @@ export function TouchPrivacyRedactorModal({
               <p className="text-slate-600 text-[11px] leading-relaxed">
                 Patient demographic details (Name, Age, Gender, Mobile Number, UHID, and Hospital IDs) will be automatically detected and blacked out with solid privacy bars before clinical report generation.
               </p>
-              <div className="flex items-center gap-1.5 text-[10px] text-emerald-700 font-medium pt-1">
+              <div className="flex items-center gap-1.5 text-[10px] text-emerald-700 font-medium pt-0.5">
                 <Lock className="h-3 w-3" />
                 <span>Zero-PII HIPAA-grade protection guaranteed</span>
               </div>

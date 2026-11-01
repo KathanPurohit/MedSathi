@@ -1,3 +1,4 @@
+import asyncio
 import base64
 import io
 import logging
@@ -207,44 +208,56 @@ async def analyze_medical_document(
 
     is_pdf = (
         raw_bytes.startswith(b"%PDF")
+        or b"%PDF" in raw_bytes[:1024]
         or (file.content_type and "pdf" in file.content_type.lower())
         or (file.filename and file.filename.lower().endswith(".pdf"))
     )
 
     if is_pdf:
-        # 1. Multi-page or single-page PDF: Gemini accepts raw PDF bytes natively with zero server RAM bloat!
-        report = _extract_report_with_resilience([raw_bytes], language)
+        # Non-blocking concurrent execution: Gemini extraction and PDF thumbnail generation run simultaneously
+        async def _extract_report():
+            return await asyncio.to_thread(_extract_report_with_resilience, [raw_bytes], language)
 
-        # 2. Render lightweight 1st-page thumbnail for the frontend preview card & black out PII
-        preview_page_bytes: list[bytes] = []
-        try:
-            pdf = pdfium.PdfDocument(raw_bytes)
-            if len(pdf) > 0:
-                first_page = pdf[0].render(scale=1.2).to_pil().convert("RGB")
-                if max(first_page.size) > 1000:
-                    first_page.thumbnail((1000, 1000), Image.Resampling.LANCZOS)
-                buf = io.BytesIO()
-                first_page.save(buf, format="JPEG", quality=80, optimize=True)
+        async def _render_preview():
+            def _render():
+                try:
+                    pdf = pdfium.PdfDocument(raw_bytes)
+                    if len(pdf) == 0:
+                        return None
+                    first_page = pdf[0].render(scale=1.2).to_pil().convert("RGB")
+                    if max(first_page.size) > 1000:
+                        first_page.thumbnail((1000, 1000), Image.Resampling.LANCZOS)
+                    buf = io.BytesIO()
+                    first_page.save(buf, format="JPEG", quality=80, optimize=True)
+                    return buf.getvalue()
+                except Exception as exc:
+                    logging.warning(f"Could not render PDF preview thumbnail: {exc}")
+                    return None
 
-                # Black out patient name, demographics, and header identifiers on the PDF thumbnail
-                redacted_thumb = await auto_redact_pii_from_image(buf.getvalue())
-                preview_page_bytes.append(redacted_thumb)
-        except Exception as exc:
-            logging.warning(f"Could not render PDF preview thumbnail: {exc}")
+            thumb_bytes = await asyncio.to_thread(_render)
+            if thumb_bytes:
+                redacted_thumb = await auto_redact_pii_from_image(thumb_bytes)
+                return [redacted_thumb]
+            return []
 
-        sanitized_pages_bytes = preview_page_bytes
+        report, sanitized_pages_bytes = await asyncio.gather(_extract_report(), _render_preview())
     else:
-        # 1. Render all document pages with safe memory bounds
-        page_images_bytes = _validate_and_extract_pages(raw_bytes, file.filename, file.content_type)
+        # 1. Render all document pages with safe memory bounds (non-blocking)
+        page_images_bytes = await asyncio.to_thread(
+            _validate_and_extract_pages, raw_bytes, file.filename, file.content_type
+        )
 
         # 2. Blackout patient demographics and identifiers (with timeout protection)
         sanitized_pages_bytes = await _redact_document_pages(page_images_bytes)
 
-        # 3. Multimodal vision extraction via Gemini
-        report = _extract_report_with_resilience(sanitized_pages_bytes, language)
+        # 3. Multimodal vision extraction via Gemini (non-blocking)
+        report = await asyncio.to_thread(_extract_report_with_resilience, sanitized_pages_bytes, language)
 
-    # 4. Generic pricing & savings matching
-    generic_savings, total_monthly_saved = match_generic_salt_prices(report.medicines)
+    # 4. Generic pricing & savings matching (non-blocking)
+    def _do_match(meds):
+        return match_generic_salt_prices(meds)
+
+    generic_savings, total_monthly_saved = await asyncio.to_thread(_do_match, report.medicines)
     report.generic_savings = generic_savings
     report.total_monthly_savings_inr = total_monthly_saved
 

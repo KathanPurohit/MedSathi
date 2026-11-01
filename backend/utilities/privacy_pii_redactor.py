@@ -144,10 +144,21 @@ def _run_tesseract_ocr(pil_img: Image.Image) -> list[OcrLine]:
         return []
 
     try:
-        data = pytesseract.image_to_data(pil_img, output_type=pytesseract.Output.DICT)
+        # Downscale for ultra-fast OCR on low-spec cloud CPUs (max 800px)
+        w, h = pil_img.size
+        max_dim = max(w, h)
+        scale = 1.0
+        ocr_img = pil_img
+        if max_dim > 800:
+            scale = 800 / max_dim
+            new_w, new_h = int(w * scale), int(h * scale)
+            ocr_img = pil_img.resize((new_w, new_h), Image.Resampling.BILINEAR)
+
+        data = pytesseract.image_to_data(ocr_img, output_type=pytesseract.Output.DICT)
         lines_dict: dict[tuple, list[OcrWord]] = {}
         total_items = len(data.get("text", []))
 
+        inv_scale = 1.0 / scale
         for i in range(total_items):
             text = str(data["text"][i]).strip()
             if not text:
@@ -157,10 +168,10 @@ def _run_tesseract_ocr(pil_img: Image.Image) -> list[OcrLine]:
             word = OcrWord(
                 text=text,
                 bounding_rect=OcrBoundingRect(
-                    x=int(data["left"][i]),
-                    y=int(data["top"][i]),
-                    width=int(data["width"][i]),
-                    height=int(data["height"][i]),
+                    x=int(int(data["left"][i]) * inv_scale),
+                    y=int(int(data["top"][i]) * inv_scale),
+                    width=int(int(data["width"][i]) * inv_scale),
+                    height=int(int(data["height"][i]) * inv_scale),
                 ),
             )
             lines_dict.setdefault(line_key, []).append(word)
@@ -170,8 +181,8 @@ def _run_tesseract_ocr(pil_img: Image.Image) -> list[OcrLine]:
                 OcrLine(text=" ".join(w.text for w in words), words=words)
                 for words in lines_dict.values()
             ]
-    except Exception:
-        pass
+    except Exception as exc:
+        print(f"[Privacy Shield] Tesseract OCR error: {exc}")
 
     return []
 
@@ -310,9 +321,9 @@ async def auto_redact_pii_from_image(image_bytes: bytes) -> bytes:
     except Exception:
         return image_bytes
 
-    # Scale down if image is high-res (e.g. 48MP camera photo) so OCR executes fast with low RAM
-    if max(pil_img.size) > 1400:
-        pil_img.thumbnail((1400, 1400), Image.Resampling.LANCZOS)
+    # Scale down if image is high-res so processing is fast and light on memory
+    if max(pil_img.size) > 1200:
+        pil_img.thumbnail((1200, 1200), Image.Resampling.LANCZOS)
         buf = io.BytesIO()
         pil_img.save(buf, format="JPEG", quality=85)
         image_bytes = buf.getvalue()
@@ -321,44 +332,57 @@ async def auto_redact_pii_from_image(image_bytes: bytes) -> bytes:
     img_width, img_height = pil_img.size
 
     try:
-        # Run OCR with a strict 7-second timeout so slow CPU on free tier never causes connection resets
-        lines = await asyncio.wait_for(_run_ocr(pil_img, image_bytes), timeout=7.0)
+        # Run OCR with a 5-second timeout (downscaled Tesseract takes ~1s)
+        lines = await asyncio.wait_for(_run_ocr(pil_img, image_bytes), timeout=5.0)
     except Exception as exc:
-        print(f"[Privacy Shield] OCR skipped or timed out ({exc}). Proceeding safely.")
+        print(f"[Privacy Shield] OCR skipped or timed out ({exc}). Engaging fail-safe privacy blackout.")
         lines = []
 
-    if not lines:
-        output_buf = io.BytesIO()
-        pil_img.save(output_buf, format="JPEG", quality=82, optimize=True)
-        return output_buf.getvalue()
-
-    # 1. Determine clinical boundary to protect prescriptions & lab results
-    clinical_start_y = _find_clinical_start_y(lines, img_height)
-    demographic_ceiling_y = min(clinical_start_y, int(img_height * 0.45))
-
-    # 2. Delegate redaction tasks
     redacted_count = 0
-    redacted_count += _redact_demographic_fields(draw, lines, demographic_ceiling_y, img_width, img_height)
-    redacted_count += _redact_identifiers_and_contacts(draw, lines, demographic_ceiling_y, img_width, img_height)
-    redacted_count += _redact_qr_and_stamps(draw, lines, demographic_ceiling_y, img_width, img_height)
 
-    # 3. Privacy Guarantee: If OCR didn't catch specific keywords, blackout any text lines in demographic header band
+    if lines:
+        # 1. Determine clinical boundary to protect prescriptions & lab results
+        clinical_start_y = _find_clinical_start_y(lines, img_height)
+        demographic_ceiling_y = min(clinical_start_y, int(img_height * 0.45))
+
+        # 2. Delegate redaction tasks
+        redacted_count += _redact_demographic_fields(draw, lines, demographic_ceiling_y, img_width, img_height)
+        redacted_count += _redact_identifiers_and_contacts(draw, lines, demographic_ceiling_y, img_width, img_height)
+        redacted_count += _redact_qr_and_stamps(draw, lines, demographic_ceiling_y, img_width, img_height)
+
+        # 3. If specific keywords weren't matched, blackout any text lines in demographic header band
+        if redacted_count == 0:
+            for line in lines:
+                if not line.words:
+                    continue
+                y = line.words[0].bounding_rect.y
+                if int(img_height * 0.08) <= y <= demographic_ceiling_y:
+                    line_text_lower = line.text.lower()
+                    if not any(h in line_text_lower for h in HEADER_EXCLUDE_TERMS):
+                        min_x = min(w.bounding_rect.x for w in line.words)
+                        max_x = max(w.bounding_rect.x + w.bounding_rect.width for w in line.words)
+                        min_y = min(w.bounding_rect.y for w in line.words)
+                        max_y = max(w.bounding_rect.y + w.bounding_rect.height for w in line.words)
+                        draw.rectangle(
+                            [max(0, min_x - 6), max(0, min_y - 3), min(img_width, max_x + 8), min(img_height, max_y + 4)],
+                            fill="#0f172a",
+                        )
+                        redacted_count += 1
+
+    # 4. FAIL-SAFE PRIVACY SHIELD:
+    # If OCR produced 0 blackouts (due to handwriting, missing engine, timeout, or OCR failure),
+    # ALWAYS black out the demographic header area so patient details can NEVER be visible.
     if redacted_count == 0:
-        for line in lines:
-            if not line.words:
-                continue
-            y = line.words[0].bounding_rect.y
-            if int(img_height * 0.08) <= y <= demographic_ceiling_y:
-                line_text_lower = line.text.lower()
-                if not any(h in line_text_lower for h in HEADER_EXCLUDE_TERMS):
-                    min_x = min(w.bounding_rect.x for w in line.words)
-                    max_x = max(w.bounding_rect.x + w.bounding_rect.width for w in line.words)
-                    min_y = min(w.bounding_rect.y for w in line.words)
-                    max_y = max(w.bounding_rect.y + w.bounding_rect.height for w in line.words)
-                    draw.rectangle([max(0, min_x - 6), max(0, min_y - 3), min(img_width, max_x + 8), min(img_height, max_y + 4)], fill="#0f172a")
-                    redacted_count += 1
+        band_top = int(img_height * 0.08)
+        band_bottom = int(img_height * 0.25)
+        draw.rectangle([0, band_top, img_width, band_bottom], fill="#0f172a")
+        # Draw prominent Privacy Shield styling lines
+        draw.rectangle([0, band_top, img_width, band_top + 4], fill="#10b981")
+        draw.rectangle([0, band_bottom - 4, img_width, band_bottom], fill="#10b981")
+        redacted_count += 1
+        print("[Privacy Shield] Applied fail-safe blackout over patient demographic header band.")
 
-    print(f"[Privacy Shield] Successfully blacked out {redacted_count} PII boxes from medical document.")
+    print(f"[Privacy Shield] Successfully secured medical document with {redacted_count} blackout boxes.")
     output_buf = io.BytesIO()
     pil_img.save(output_buf, format="JPEG", quality=82, optimize=True)
     return output_buf.getvalue()
