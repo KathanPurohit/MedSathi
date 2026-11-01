@@ -25,6 +25,16 @@ app.add_middleware(
 )
 
 
+@app.get("/")
+def root():
+    return {"status": "ok", "service": "MedSaathi API"}
+
+
+@app.get("/health")
+def health():
+    return {"status": "healthy"}
+
+
 class VoiceGenerateRequest(BaseModel):
     voice_script: str
     language: str = "English"
