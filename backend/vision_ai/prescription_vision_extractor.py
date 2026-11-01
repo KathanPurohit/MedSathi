@@ -6,7 +6,7 @@ from google.genai.errors import ServerError, ClientError
 from config.settings import settings
 from schemas.prescription_response_schema import SimplifiedPrescriptionReport
 
-CANDIDATE_MODELS = ["gemini-3.5-flash-lite", "gemini-2.5-flash"]
+CANDIDATE_MODELS = ["gemini-2.5-flash", "gemini-3.5-flash-lite"]
 
 
 def _call_gemini_with_resilience(
@@ -28,15 +28,16 @@ def _call_gemini_with_resilience(
                 )
                 if response and response.text:
                     return response
-            except ServerError as exc:
+            except Exception as exc:
                 last_exception = exc
-                time.sleep((attempt + 1) * 1.5)
-            except ClientError as exc:
-                last_exception = exc
-                if "429" in str(exc) or "RESOURCE_EXHAUSTED" in str(exc):
+                err_str = str(exc)
+                if "429" in err_str or "RESOURCE_EXHAUSTED" in err_str:
                     time.sleep((attempt + 1) * 2)
+                elif "503" in err_str or "UNAVAILABLE" in err_str:
+                    time.sleep((attempt + 1) * 1.5)
                 else:
-                    raise exc
+                    # Break to next model on other errors
+                    break
 
     if last_exception:
         raise last_exception

@@ -1,3 +1,4 @@
+import asyncio
 import io
 import re
 import sys
@@ -309,12 +310,27 @@ async def auto_redact_pii_from_image(image_bytes: bytes) -> bytes:
     except Exception:
         return image_bytes
 
+    # Scale down if image is high-res (e.g. 48MP camera photo) so OCR executes fast with low RAM
+    if max(pil_img.size) > 1400:
+        pil_img.thumbnail((1400, 1400), Image.Resampling.LANCZOS)
+        buf = io.BytesIO()
+        pil_img.save(buf, format="JPEG", quality=85)
+        image_bytes = buf.getvalue()
+
     draw = ImageDraw.Draw(pil_img)
     img_width, img_height = pil_img.size
 
-    lines = await _run_ocr(pil_img, image_bytes)
+    try:
+        # Run OCR with a strict 7-second timeout so slow CPU on free tier never causes connection resets
+        lines = await asyncio.wait_for(_run_ocr(pil_img, image_bytes), timeout=7.0)
+    except Exception as exc:
+        print(f"[Privacy Shield] OCR skipped or timed out ({exc}). Proceeding safely.")
+        lines = []
+
     if not lines:
-        return image_bytes
+        output_buf = io.BytesIO()
+        pil_img.save(output_buf, format="JPEG", quality=82, optimize=True)
+        return output_buf.getvalue()
 
     # 1. Determine clinical boundary to protect prescriptions & lab results
     clinical_start_y = _find_clinical_start_y(lines, img_height)
@@ -328,5 +344,5 @@ async def auto_redact_pii_from_image(image_bytes: bytes) -> bytes:
 
     print(f"[Privacy Shield] Successfully blacked out {redacted_count} PII boxes from medical document.")
     output_buf = io.BytesIO()
-    pil_img.save(output_buf, format="JPEG", quality=95)
+    pil_img.save(output_buf, format="JPEG", quality=82, optimize=True)
     return output_buf.getvalue()

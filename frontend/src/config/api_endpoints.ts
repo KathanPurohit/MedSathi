@@ -16,6 +16,11 @@ export const getFastApiBaseUrl = (): string => {
     ) {
       return `http://${host}:8000`;
     }
+
+    // 3. Production fallback on Vercel if NEXT_PUBLIC_FASTAPI_BASE_URL was omitted
+    if (host.includes("vercel.app")) {
+      return "https://medsathi-backend.onrender.com";
+    }
   }
 
   return "http://localhost:8000";

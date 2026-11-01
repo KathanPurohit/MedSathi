@@ -2,9 +2,13 @@ import base64
 import io
 import logging
 from typing import Any
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.exceptions import RequestValidationError
+from starlette.exceptions import HTTPException as StarletteHTTPException
 from pydantic import BaseModel
+from PIL import Image
 import pypdfium2 as pdfium
 
 from generic_matcher.jan_aushadhi_price_matcher import match_generic_salt_prices
@@ -19,10 +23,51 @@ app = FastAPI(title="MedSaathi API - Medical & Prescription Simplifier")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
-    allow_credentials=True,
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# Exception handlers ensuring CORS headers are ALWAYS present on error responses
+@app.exception_handler(StarletteHTTPException)
+async def custom_http_exception_handler(request: Request, exc: StarletteHTTPException):
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "*",
+            "Access-Control-Allow-Headers": "*",
+        },
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    return JSONResponse(
+        status_code=422,
+        content={"detail": str(exc)},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "*",
+            "Access-Control-Allow-Headers": "*",
+        },
+    )
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logging.error(f"Unhandled server error: {exc}", exc_info=True)
+    return JSONResponse(
+        status_code=500,
+        content={"detail": f"Server processing error: {str(exc)}"},
+        headers={
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Methods": "*",
+            "Access-Control-Allow-Headers": "*",
+        },
+    )
 
 
 @app.get("/")
@@ -44,37 +89,49 @@ class VoiceGenerateRequest(BaseModel):
 def _validate_and_extract_pages(raw_bytes: bytes, filename: str | None, content_type: str | None) -> list[bytes]:
     """Validates document format and renders single or multi-page documents to high-resolution JPEG bytes."""
     is_pdf = (
-        (content_type and "pdf" in content_type.lower())
+        raw_bytes.startswith(b"%PDF")
+        or (content_type and "pdf" in content_type.lower())
         or (filename and filename.lower().endswith(".pdf"))
-        or raw_bytes.startswith(b"%PDF")
     )
     is_image = (
         (content_type and content_type.startswith("image/"))
         or (filename and any(filename.lower().endswith(ext) for ext in [".jpg", ".jpeg", ".png", ".webp"]))
+        or not is_pdf
     )
 
-    if not is_pdf and not is_image:
-        raise HTTPException(
-            status_code=400,
-            detail="Please upload a valid image file (JPEG, PNG, WEBP) or multi-page PDF document.",
-        )
+    if is_pdf:
+        try:
+            pdf = pdfium.PdfDocument(raw_bytes)
+            page_count = len(pdf)
+            print(f"[Document Engine] Detected PDF with {page_count} page(s).")
+            rendered_pages: list[bytes] = []
+            # Cap at 4 pages on free cloud tier to protect memory and responsiveness
+            max_pages = min(page_count, 4)
+            for i in range(max_pages):
+                page = pdf[i]
+                # Scale 1.2 provides optimal OCR/Gemini reading without RAM bloat
+                pil_page = page.render(scale=1.2).to_pil().convert("RGB")
+                if max(pil_page.size) > 1400:
+                    pil_page.thumbnail((1400, 1400), Image.Resampling.LANCZOS)
+                buf = io.BytesIO()
+                pil_page.save(buf, format="JPEG", quality=80, optimize=True)
+                rendered_pages.append(buf.getvalue())
+            return rendered_pages
+        except Exception as exc:
+            logging.error(f"Error parsing PDF document: {exc}")
+            raise HTTPException(status_code=400, detail=f"Failed to read PDF document: {exc}")
 
-    if not is_pdf:
-        return [raw_bytes]
-
+    # Standard image handling
     try:
-        pdf = pdfium.PdfDocument(raw_bytes)
-        print(f"[Document Engine] Detected multi-page PDF with {len(pdf)} page(s).")
-        rendered_pages: list[bytes] = []
-        for page in pdf:
-            pil_page = page.render(scale=2.0).to_pil().convert("RGB")
-            buf = io.BytesIO()
-            pil_page.save(buf, format="JPEG", quality=92)
-            rendered_pages.append(buf.getvalue())
-        return rendered_pages
+        im = Image.open(io.BytesIO(raw_bytes)).convert("RGB")
+        if max(im.size) > 1600:
+            im.thumbnail((1600, 1600), Image.Resampling.LANCZOS)
+        buf = io.BytesIO()
+        im.save(buf, format="JPEG", quality=82, optimize=True)
+        return [buf.getvalue()]
     except Exception as exc:
-        logging.error(f"Error parsing PDF document: {exc}")
-        raise HTTPException(status_code=400, detail=f"Failed to read PDF document: {exc}")
+        logging.error(f"Error reading image: {exc}")
+        raise HTTPException(status_code=400, detail="Please upload a valid image file (JPEG, PNG, WEBP) or PDF document.")
 
 
 async def _redact_document_pages(page_images_bytes: list[bytes]) -> list[bytes]:
@@ -113,15 +170,24 @@ def _serialize_analysis_response(
     audio_data_url: str,
     ics_calendar_text: str,
 ) -> dict[str, Any]:
-    """Packages the analysis results and redacted image data URLs for client presentation."""
-    redacted_pages_urls = [
-        f"data:image/jpeg;base64,{base64.b64encode(b).decode('utf-8')}"
-        for b in sanitized_pages
-    ]
+    """Packages the analysis results and compact preview data URLs for client presentation."""
+    # Compress preview images (max 800px, quality 75) so response JSON is lightweight (<100KB)
+    preview_urls: list[str] = []
+    for b in sanitized_pages:
+        try:
+            im = Image.open(io.BytesIO(b))
+            if max(im.size) > 800:
+                im.thumbnail((800, 800), Image.Resampling.LANCZOS)
+            buf = io.BytesIO()
+            im.save(buf, format="JPEG", quality=75, optimize=True)
+            preview_urls.append(f"data:image/jpeg;base64,{base64.b64encode(buf.getvalue()).decode('utf-8')}")
+        except Exception:
+            preview_urls.append(f"data:image/jpeg;base64,{base64.b64encode(b).decode('utf-8')}")
+
     return {
-        "redacted_image_data_url": redacted_pages_urls[0],
-        "redacted_pages": redacted_pages_urls,
-        "total_pages": len(redacted_pages_urls),
+        "redacted_image_data_url": preview_urls[0] if preview_urls else "",
+        "redacted_pages": preview_urls,
+        "total_pages": len(preview_urls),
         "report": report,
         "audio_data_url": audio_data_url,
         "ics_calendar_text": ics_calendar_text,
@@ -139,13 +205,13 @@ async def analyze_medical_document(
     if not raw_bytes:
         raise HTTPException(status_code=400, detail="Uploaded file is empty.")
 
-    # 1. Render all document pages
+    # 1. Render all document pages with safe memory bounds
     page_images_bytes = _validate_and_extract_pages(raw_bytes, file.filename, file.content_type)
 
-    # 2. Blackout patient demographics and identifiers
+    # 2. Blackout patient demographics and identifiers (with timeout protection)
     sanitized_pages_bytes = await _redact_document_pages(page_images_bytes)
 
-    # 3. Multimodal vision extraction
+    # 3. Multimodal vision extraction via Gemini
     report = _extract_report_with_resilience(sanitized_pages_bytes, language)
 
     # 4. Generic pricing & savings matching
@@ -163,7 +229,7 @@ async def analyze_medical_document(
     # 6. Medication calendar alarms
     ics_calendar_text = build_medication_ics_content(report.medicines)
 
-    # 7. Package and serialize response
+    # 7. Package and serialize response with compact previews
     return _serialize_analysis_response(
         report=report,
         sanitized_pages=sanitized_pages_bytes,
