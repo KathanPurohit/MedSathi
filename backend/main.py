@@ -215,17 +215,20 @@ async def analyze_medical_document(
         # 1. Multi-page or single-page PDF: Gemini accepts raw PDF bytes natively with zero server RAM bloat!
         report = _extract_report_with_resilience([raw_bytes], language)
 
-        # 2. Render lightweight 1st-page thumbnail for the frontend preview card
+        # 2. Render lightweight 1st-page thumbnail for the frontend preview card & black out PII
         preview_page_bytes: list[bytes] = []
         try:
             pdf = pdfium.PdfDocument(raw_bytes)
             if len(pdf) > 0:
-                first_page = pdf[0].render(scale=0.8).to_pil().convert("RGB")
-                if max(first_page.size) > 800:
-                    first_page.thumbnail((800, 800), Image.Resampling.LANCZOS)
+                first_page = pdf[0].render(scale=1.2).to_pil().convert("RGB")
+                if max(first_page.size) > 1000:
+                    first_page.thumbnail((1000, 1000), Image.Resampling.LANCZOS)
                 buf = io.BytesIO()
-                first_page.save(buf, format="JPEG", quality=75, optimize=True)
-                preview_page_bytes.append(buf.getvalue())
+                first_page.save(buf, format="JPEG", quality=80, optimize=True)
+
+                # Black out patient name, demographics, and header identifiers on the PDF thumbnail
+                redacted_thumb = await auto_redact_pii_from_image(buf.getvalue())
+                preview_page_bytes.append(redacted_thumb)
         except Exception as exc:
             logging.warning(f"Could not render PDF preview thumbnail: {exc}")
 

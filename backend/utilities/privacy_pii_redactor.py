@@ -342,6 +342,22 @@ async def auto_redact_pii_from_image(image_bytes: bytes) -> bytes:
     redacted_count += _redact_identifiers_and_contacts(draw, lines, demographic_ceiling_y, img_width, img_height)
     redacted_count += _redact_qr_and_stamps(draw, lines, demographic_ceiling_y, img_width, img_height)
 
+    # 3. Privacy Guarantee: If OCR didn't catch specific keywords, blackout any text lines in demographic header band
+    if redacted_count == 0:
+        for line in lines:
+            if not line.words:
+                continue
+            y = line.words[0].bounding_rect.y
+            if int(img_height * 0.08) <= y <= demographic_ceiling_y:
+                line_text_lower = line.text.lower()
+                if not any(h in line_text_lower for h in HEADER_EXCLUDE_TERMS):
+                    min_x = min(w.bounding_rect.x for w in line.words)
+                    max_x = max(w.bounding_rect.x + w.bounding_rect.width for w in line.words)
+                    min_y = min(w.bounding_rect.y for w in line.words)
+                    max_y = max(w.bounding_rect.y + w.bounding_rect.height for w in line.words)
+                    draw.rectangle([max(0, min_x - 6), max(0, min_y - 3), min(img_width, max_x + 8), min(img_height, max_y + 4)], fill="#0f172a")
+                    redacted_count += 1
+
     print(f"[Privacy Shield] Successfully blacked out {redacted_count} PII boxes from medical document.")
     output_buf = io.BytesIO()
     pil_img.save(output_buf, format="JPEG", quality=82, optimize=True)

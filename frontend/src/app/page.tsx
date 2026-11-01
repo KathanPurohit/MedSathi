@@ -57,14 +57,7 @@ export default function MedSaathiHomePage() {
           selectedVoiceGender={voiceGender}
           onSelectVoiceGender={setVoiceGender}
           onFileSelected={(file) => {
-            const isPdf =
-              file.type === "application/pdf" ||
-              file.name.toLowerCase().endsWith(".pdf");
-            if (isPdf) {
-              handleConfirmSanitizedBlob(file);
-            } else {
-              setPendingFile(file);
-            }
+            setPendingFile(file);
           }}
           isAnalyzing={isAnalyzing}
         />

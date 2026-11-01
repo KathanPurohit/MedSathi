@@ -18,15 +18,29 @@ export async function submitDocumentForAnalysis(
     imageBlob.type === "application/pdf" ||
     (imageBlob instanceof File && imageBlob.name.toLowerCase().endsWith(".pdf"));
 
-  const filename =
-    imageBlob instanceof File
-      ? imageBlob.name
-      : isPdf
-      ? "document.pdf"
-      : "sanitized-document.jpg";
+  // Check file size limit (max 15MB to prevent mobile timeouts on cloud free tiers)
+  if (imageBlob.size > 15 * 1024 * 1024) {
+    throw new Error(
+      "The selected PDF is over 15MB. Please upload a smaller document or snap photos of the prescription."
+    );
+  }
+
+  // Pre-buffer file into memory (critical for Google Drive / cloud file picker streams on mobile)
+  let cleanBlob: Blob = imageBlob;
+  try {
+    const arrayBuf = await imageBlob.arrayBuffer();
+    cleanBlob = new Blob([arrayBuf], {
+      type: isPdf ? "application/pdf" : (imageBlob.type || "image/jpeg"),
+    });
+  } catch (readErr) {
+    console.warn("Could not buffer cloud file into ArrayBuffer:", readErr);
+  }
+
+  // Standard safe ASCII filename to avoid multipart header encoding errors across mobile OSes
+  const safeFilename = isPdf ? "prescription_document.pdf" : "sanitized_document.jpg";
 
   const formData = new FormData();
-  formData.append("file", imageBlob, filename);
+  formData.append("file", cleanBlob, safeFilename);
   formData.append("language", language);
   formData.append("voice_gender", voiceGender);
 
